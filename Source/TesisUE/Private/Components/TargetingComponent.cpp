@@ -179,10 +179,13 @@ void UTargetingComponent::RotateTowardsTarget(AActor* Target)
     const FVector TargetLocation = Target->GetActorLocation() + FVector(0.f, 0.f, 70.f);
     
     const FRotator TargetRotation = UKismetMathLibrary::FindLookAtRotation(StartLocation, TargetLocation);
-    const FRotator CurrentControlRotation = OwnerController->GetControlRotation();
-    
-    const FRotator NewControlRotation = FMath::RInterpTo(CurrentControlRotation, TargetRotation, GetWorld()->GetDeltaSeconds(), 15.f);
-    OwnerController->SetControlRotation(NewControlRotation);
+
+    if (OwnerController)
+    {
+        const FRotator CurrentControlRotation = OwnerController->GetControlRotation();
+        const FRotator NewControlRotation = FMath::RInterpTo(CurrentControlRotation, TargetRotation, GetWorld()->GetDeltaSeconds(), 15.f);
+        OwnerController->SetControlRotation(NewControlRotation);
+    }
 }
 
 TArray<AActor*> UTargetingComponent::GetTargets(const float Radius) const

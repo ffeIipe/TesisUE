@@ -1,0 +1,665 @@
+// Copyright 2024 Tore Lervik. All Rights Reserved.
+
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/GammaCorrectionCommon.ush"
+
+
+#define VISUALIZE_NONE 0
+#define VISUALIZE_SIZE_AND_FADE 1 // Visualizes each blended object and the fade between them (Green, Cyan, Blue & Red)
+#define VISUALIZE_SHADER_DEPTH 2 // Visualizes how many instructions are executed in the shader for the given pixel (Green to red)
+
+#if MESH_BLEND_VISUALIZE != VISUALIZE_NONE
+#include "/Engine/Private/Visualization.ush"
+#endif
+
+
+// FMeshBlendGlobalData
+float4 MeshBlend_Size;
+float4 MeshBlend_MinSize;
+float MeshBlend_SlopeFactor;
+float MeshBlend_NoiseFactor;
+
+#include "MeshBlendCommon.usf"
+
+// Global features
+#define MESH_BLEND_STAGE_SECONDARY_PASS 1
+#define MESH_BLEND_STAGE_SHADOW_FIX 1
+
+// Quality settings
+#if MESH_BLEND_QUALITY == 3				// Cinematic
+#define MESH_BLEND_DIRECTIONS 8
+#define MESH_BLEND_SAMPLES 6
+#define MESH_BLEND_SECONDARY_SAMPLES 4
+#define MESH_BLEND_SECONDARY_STEPS 5
+#define MESH_BLEND_SECONDARY_PASS 1
+#define MESH_BLEND_SECONDARY_PASS_MISS 1
+#define MESH_BLEND_NOISE_TEXTURE 1
+#define MESH_BLEND_STAGE_ANTI_PEBBLE 1
+#define MESH_BLEND_RANDOM_PIXEL_SIZE 0.5
+#define MESH_BLEND_CHEAP_RANDOM 0
+#define MESH_BLEND_RANDOM_FACTOR 1
+#define MESH_BLEND_PAD_FADING 0.02
+#define MESH_BLEND_SAMPLE_MULTIPLIER 0.75
+#define MESH_BLEND_SCALE_FACTOR 1.0
+
+#elif MESH_BLEND_QUALITY == 2			// High
+#define MESH_BLEND_DIRECTIONS 3
+#define MESH_BLEND_SAMPLES 3
+#define MESH_BLEND_SECONDARY_SAMPLES 3
+#define MESH_BLEND_SECONDARY_STEPS 5
+#define MESH_BLEND_SECONDARY_PASS 1
+#define MESH_BLEND_SECONDARY_PASS_MISS 0
+#define MESH_BLEND_NOISE_TEXTURE 1
+#define MESH_BLEND_STAGE_ANTI_PEBBLE 1
+#define MESH_BLEND_RANDOM_PIXEL_SIZE 0.5
+#define MESH_BLEND_CHEAP_RANDOM 0
+#define MESH_BLEND_RANDOM_FACTOR 0.5
+#define MESH_BLEND_PAD_FADING 0.02
+#define MESH_BLEND_SAMPLE_MULTIPLIER 0.75
+#define MESH_BLEND_SCALE_FACTOR 1.0
+
+#elif MESH_BLEND_QUALITY == 1			// Medium
+#define MESH_BLEND_DIRECTIONS 3
+#define MESH_BLEND_SAMPLES 3
+#define MESH_BLEND_SECONDARY_SAMPLES 2
+#define MESH_BLEND_SECONDARY_STEPS 4
+#define MESH_BLEND_SECONDARY_PASS 0
+#define MESH_BLEND_SECONDARY_PASS_MISS 1
+#define MESH_BLEND_NOISE_TEXTURE 1
+#define MESH_BLEND_STAGE_ANTI_PEBBLE 0
+#define MESH_BLEND_RANDOM_PIXEL_SIZE 2.0
+#define MESH_BLEND_CHEAP_RANDOM 1
+#define MESH_BLEND_RANDOM_FACTOR 0.5
+#define MESH_BLEND_PAD_FADING 0.1
+#define MESH_BLEND_SAMPLE_MULTIPLIER 0.75
+#define MESH_BLEND_SCALE_FACTOR 0.9
+
+
+#else									// Low
+#define MESH_BLEND_DIRECTIONS 3
+#define MESH_BLEND_SAMPLES 2
+#define MESH_BLEND_SECONDARY_SAMPLES 2
+#define MESH_BLEND_SECONDARY_STEPS 3
+#define MESH_BLEND_SECONDARY_PASS 0
+#define MESH_BLEND_SECONDARY_PASS_MISS 0
+#define MESH_BLEND_NOISE_TEXTURE 0
+#define MESH_BLEND_STAGE_ANTI_PEBBLE 0
+#define MESH_BLEND_RANDOM_PIXEL_SIZE 3.0
+#define MESH_BLEND_CHEAP_RANDOM 1
+#define MESH_BLEND_RANDOM_FACTOR 0.5
+#define MESH_BLEND_PAD_FADING 0.1
+#define MESH_BLEND_SAMPLE_MULTIPLIER 0.75
+#define MESH_BLEND_SCALE_FACTOR 0.6
+
+#endif
+
+
+void ComputeBlend(float FadeSize,
+                  float2 UV,
+                  float4 SvPosition,
+                  inout float3 OrgColor,
+                  float CurrentStencil,
+                  float DepthScale,
+                  float ViewPortFactor,
+                  float StencilToIgnore,
+                  out float Out_BlendStencil,
+                  out float3 Out_BlendColor,
+                  out float Out_BlendFactor,
+                  out float Out_BlendLength,
+                  out bool Out_ShouldRunSecondaryPass)
+{
+	Out_BlendStencil = 0;
+	Out_BlendColor = OrgColor;
+	Out_BlendFactor = 0;
+	Out_BlendLength = 0;
+	Out_ShouldRunSecondaryPass = false;
+	float DepthScaleInv = rcp(DepthScale);
+
+#if MESH_BLEND_FRAME_DITHER
+	float DitherFrameId = View.StateFrameIndexMod8;
+#else
+	float DitherFrameId = 1;
+#endif
+
+	const float Dither = InterleavedGradientNoise(round(UV * PostProcessOutput_Extent / MESH_BLEND_RANDOM_PIXEL_SIZE), DitherFrameId);
+	float4 Random = float4(1.0 - Dither, Dither, (1.0 - Dither) * Dither, Dither * Dither);
+
+#if MESH_BLEND_CHEAP_RANDOM
+	Random.x = Random.x > 0.5 ? 0 : 0.5;
+#endif
+
+
+	// Find which direction to blend with ---
+
+	// First direction pass ---
+
+	float MinSizeFactor = GetMinSizeFactor(CurrentStencil);
+	float MaxFade = GetMaxFade(FadeSize, MinSizeFactor, DepthScaleInv, ViewPortFactor) * MESH_BLEND_SCALE_FACTOR;
+
+	float DegreesOffsetStep = 360.0 / MESH_BLEND_DIRECTIONS;
+	float DegreesOffset = DegreesOffsetStep * Random.x;
+
+	float CurrentFadeFactor = 0;
+	float MaxOffset = 0;
+	float2 Direction = float2(0, 0);
+	float DirectionStencil = 0;
+
+#if MESH_BLEND_SECONDARY_PASS
+	bool bShouldRunSecondaryPass = false;
+#endif
+
+#if MESH_BLEND_DIRECTIONS == 3
+	float2 TempDirections3[3];
+	TempDirections3[0] = Calculate_Point(DegreesOffset + DegreesOffsetStep * 0);
+	TempDirections3[1] = Calculate_Point(DegreesOffset + DegreesOffsetStep * 1);
+	TempDirections3[2] = Calculate_Point(DegreesOffset + DegreesOffsetStep * 2);
+#endif
+
+	for (int i = 0; i < MESH_BLEND_SAMPLES; i++)
+	{
+		for (int y = 0; y < MESH_BLEND_DIRECTIONS; y++)
+		{
+			float t = (i + 1 + lerp(-1, 1, Random.y * MESH_BLEND_RANDOM_FACTOR)) / float(MESH_BLEND_SAMPLES);
+			float DirectionStepsStart = max(2, ceil(t * t * t * MaxFade));
+
+#if MESH_BLEND_DIRECTIONS == 3
+			float2 TempDirection = TempDirections3[y];
+#else
+			float2 TempDirection = Calculate_Point(DegreesOffset + DegreesOffsetStep * y);
+#endif
+
+			float Stencil = GetMeshBlendStencil(UV + RoundAwayFromZero(TempDirection * DirectionStepsStart) * PostProcessOutput_ExtentInverse);
+
+			if (CurrentStencil == Stencil)
+			{
+				continue;
+			}
+
+			if (Stencil == 0.0 || Stencil == 1.0 || Stencil == StencilToIgnore)
+			{
+				continue;
+			}
+
+			float OppositeFadeSize = GetFadeSize(Stencil, ViewPortFactor);
+			float OppositeMinSizeFactor = GetMinSizeFactor(Stencil);
+			float TempMaxFade = GetMaxFade(OppositeFadeSize, OppositeMinSizeFactor, DepthScaleInv, ViewPortFactor) * MESH_BLEND_SCALE_FACTOR;
+			float TempFade = (1.0 - saturate(DirectionStepsStart * rcp(TempMaxFade)));
+
+			if (TempFade > CurrentFadeFactor)
+			{
+				// Update variables
+				CurrentFadeFactor = TempFade;
+				MaxOffset = DirectionStepsStart;
+				Direction = TempDirection;
+				DirectionStencil = Stencil;
+
+#if MESH_BLEND_SECONDARY_PASS
+					bShouldRunSecondaryPass = i != MESH_BLEND_SAMPLES - 1;
+#endif
+			}
+
+			break;
+		}
+
+		if (DirectionStencil > 0)
+		{
+			break;
+		}
+	}
+
+
+	float2 Offset = RoundAwayFromZero(Direction * MaxOffset);
+
+
+	if (Offset.x == 0 && Offset.y == 0)
+	{
+#if MESH_BLEND_VISUALIZE == VISUALIZE_SHADER_DEPTH
+			Out_BlendColor = GreenToRedHUE(0.0);
+			Out_BlendFactor = 1;
+			return;
+#endif
+		return;
+	}
+
+#if MESH_BLEND_SECONDARY_PASS
+	if (bShouldRunSecondaryPass && StencilToIgnore == 0)
+	{
+		for (int y = 0; y < MESH_BLEND_DIRECTIONS; y++)
+		{
+			
+#if MESH_BLEND_DIRECTIONS == 3
+			float2 TempDirection = TempDirections3[y];
+#else
+			float2 TempDirection = Calculate_Point(DegreesOffset + DegreesOffsetStep * y);
+#endif
+
+			float t = (MESH_BLEND_SAMPLES - 1 + lerp(-1, 1, Random.y * MESH_BLEND_RANDOM_FACTOR)) / float(MESH_BLEND_SAMPLES);
+			float DirectionStepsStart = t * t * t * MaxFade;
+
+			float Stencil = GetMeshBlendStencil(UV + TempDirection * DirectionStepsStart * PostProcessOutput_ExtentInverse);
+
+			if (CurrentStencil == Stencil || Stencil == 0.0 || Stencil == 1.0)
+			{
+				continue;
+			}
+			
+			if (DirectionStencil != Stencil)
+			{
+				Out_ShouldRunSecondaryPass = true;
+				break;
+			}
+		}
+	}
+#endif
+
+	Out_BlendStencil = DirectionStencil;
+
+	// Ensure the fade size is equal on both sides of the blend ---
+
+	float OppositeFadeSize = GetFadeSize(DirectionStencil, ViewPortFactor);
+
+	if (OppositeFadeSize < FadeSize)
+	{
+		FadeSize = OppositeFadeSize;
+		MinSizeFactor = GetMinSizeFactor(DirectionStencil);
+		MaxFade = GetMaxFade(FadeSize, MinSizeFactor, DepthScaleInv, ViewPortFactor) * MESH_BLEND_SCALE_FACTOR;
+	}
+
+	// Second direction pass ---
+#if MESH_BLEND_STAGE_SECONDARY_PASS
+
+	float DirectionSteps = MaxFade * rcp(float(MESH_BLEND_SAMPLES));
+	float SecondaryPassSteps = max(2.0, (DirectionSteps + 1.0) / MESH_BLEND_SECONDARY_STEPS) - Random.z;
+
+
+	if (MaxOffset > 2)
+	{
+		float RandomValues[4] = {Random.y, Random.z, Random.w, Random.x};
+		float Degrees = Calculate_Angle_Degrees(Direction.x, Direction.y);
+		float DegreesShift = 360.0 / MESH_BLEND_DIRECTIONS * 0.2;
+		float MinDegrees = Degrees - DegreesShift;
+		float MaxDegrees = Degrees + DegreesShift;
+
+
+		for (int i = 0; i < MESH_BLEND_SECONDARY_SAMPLES; i++)
+		{
+			float2 TempDirection = Calculate_Point(lerp(MinDegrees, MaxDegrees, RandomValues[i]));
+			float TempMaxOffset = round(MaxOffset - SecondaryPassSteps);
+
+			for (float y = 0; y < MESH_BLEND_SECONDARY_STEPS; y++)
+			{
+				float2 TempOffset = RoundAwayFromZero(TempDirection * TempMaxOffset);
+				float SecondaryPassStencil = GetMeshBlendStencil(UV + TempOffset * PostProcessOutput_ExtentInverse);
+
+				if (DirectionStencil == SecondaryPassStencil)
+				{
+					if (TempMaxOffset < MaxOffset)
+					{
+						MaxOffset = TempMaxOffset;
+						Direction = TempDirection;
+						Offset = TempOffset;
+					}
+
+					TempMaxOffset -= SecondaryPassSteps;
+				}
+				else
+				{
+					break;
+				}
+			}
+		}
+	}
+
+#endif
+
+
+	// Ensure we find the exact edge of the mesh ---
+
+	for (int i = 1; i < 10; i++)
+	{
+		float2 TempOffset = Offset - RoundAwayFromZero(Direction * i);
+		float TempStencil = GetMeshBlendStencil(UV + TempOffset * PostProcessOutput_ExtentInverse);
+
+		if (TempStencil == DirectionStencil)
+		{
+			Offset = TempOffset;
+		}
+		else
+		{
+			break;
+		}
+	}
+
+
+	float TargetStencil = GetMeshBlendStencil(UV + RoundAwayFromZero(Offset * 2) * PostProcessOutput_ExtentInverse);
+
+	if (DirectionStencil != TargetStencil)
+	{
+		return;
+	}
+
+
+	// Anti pebble-ghosting detection ---
+	// Workaround for when fade size is bigger than the object, causing the object to be washed out by the fade.
+#if MESH_BLEND_STAGE_ANTI_PEBBLE
+
+	[branch] if (OppositeFadeSize != MeshBlend_Size.x)
+	{
+		float AntiGhostingMaxFade = MaxFade;
+		bool bAdjustedEdge = false;
+
+
+		[loop] for (int k = 1; k < 10; k++)
+		{
+			float Opposite2Stencil = GetMeshBlendStencil(UV + Direction * k * -2 * PostProcessOutput_ExtentInverse);
+
+			if (Opposite2Stencil == 0.0 || Opposite2Stencil == 1.0 || DirectionStencil == Opposite2Stencil)
+			{
+				AntiGhostingMaxFade = k;
+				bAdjustedEdge = true;
+				break;
+			}
+
+			if (k >= MaxFade)
+			{
+				break;
+			}
+		}
+
+		[branch] if (bAdjustedEdge)
+		{
+			float GhostFadeFactor = 0.0;
+
+
+			const float2 Directions[4] = {
+				float2(1.00, 0.00),
+				float2(0.00, 1.00),
+				float2(-1.00, 0.00),
+				float2(-0.00, -1.00)
+			};
+
+			for (int DirectionIndex = 0; DirectionIndex < 4; DirectionIndex++)
+			{
+				float2 TempOffset = Directions[DirectionIndex] * MaxFade;
+				float Stencil = GetMeshBlendStencil(UV + TempOffset * PostProcessOutput_ExtentInverse);
+
+				if (CurrentStencil != Stencil)
+				{
+					GhostFadeFactor += 1;
+				}
+				else
+				{
+					GhostFadeFactor -= 2;
+				}
+			}
+
+			// We adjust the maxFade if the pixel appears to be in the center of a mesh, and most directions end up with a different stencil (Like a pebble would)
+			GhostFadeFactor = saturate(GhostFadeFactor / 4.0);
+			MaxFade = lerp(MaxFade, min(AntiGhostingMaxFade, MaxFade), GhostFadeFactor);
+		}
+	}
+
+#endif
+
+
+	Out_BlendLength = length(Offset);
+
+
+	// Adjust for bleed factor ---
+#if MESH_BLEND_BLEED == 1
+    float bleedFactor = GetBleedFactor(currentStencil, directionStencil, sizeSmallBleedFactor, sizeMediumBleedFactor, sizeLargeBleedFactor, sizeExtraLargeBleedFactor);
+    maxFade /= max(bleedFactor * 2, 1);
+#endif
+
+
+	float2 UV_A = UV;
+	float2 UV_E = UV + RoundAwayFromZero(Offset - Direction * 2) * PostProcessOutput_ExtentInverse;
+	float2 UV_B = UV + RoundAwayFromZero(Offset) * PostProcessOutput_ExtentInverse;
+	float2 UV_C = UV + RoundAwayFromZero(Offset * 2) * PostProcessOutput_ExtentInverse;
+
+	float Depth_A = GetDepth(UV_A);
+	float Depth_E = GetDepth(UV_E);
+	float Depth_B = GetDepth(UV_B);
+	float Depth_C = GetDepth(UV_C);
+
+	float4 SvPosition_A = UVToSvPosition(UV_A, SvPosition);
+	float3 AbsoluteWorldPosition_A = GetWorldPosition(SvPosition_A, Depth_A);
+
+	float4 SvPosition_E = UVToSvPosition(UV_E, SvPosition);
+	float3 AbsoluteWorldPosition_E = GetWorldPosition(SvPosition_E, Depth_E);
+
+	float4 SvPosition_B = UVToSvPosition(UV_B, SvPosition);
+	float3 AbsoluteWorldPosition_B = GetWorldPosition(SvPosition_B, Depth_B);
+
+	float4 SvPosition_C = UVToSvPosition(UV_C, SvPosition);
+	float3 AbsoluteWorldPosition_C = GetWorldPosition(SvPosition_C, Depth_C);
+
+	float InvMaxFade = rcp(MaxFade);
+	float TempBlendFactor = saturate(Out_BlendLength * InvMaxFade);
+	float LengthB = (length(AbsoluteWorldPosition_B - AbsoluteWorldPosition_A) + length(AbsoluteWorldPosition_B - AbsoluteWorldPosition_C)) * lerp(0.33, 0.5, TempBlendFactor);
+	LengthB = LengthB * rcp(max(1.0, min(MinSizeFactor, Depth_B / 1000.0)));
+	LengthB *= ViewPortFactor;
+	float LengthFactor = (FadeSize * TempBlendFactor) * rcp(LengthB);
+
+
+	// Ensure we don't blend with something that is not intersecting the object
+	float DepthDifferenceFactor = 1.0 - saturate((length(AbsoluteWorldPosition_E - AbsoluteWorldPosition_B) * DepthScaleInv - 0.01) * 60.0);
+	LengthFactor *= DepthDifferenceFactor;
+
+	if (LengthFactor < 0.01)
+	{
+#if MESH_BLEND_VISUALIZE == VISUALIZE_SHADER_DEPTH
+		Out_BlendColor = GreenToRedHUE(0.7);
+		Out_BlendFactor = 1;
+		return;
+#endif
+
+		return;
+	}
+
+	float Angle = FastCalculateAngle(AbsoluteWorldPosition_A, AbsoluteWorldPosition_B, AbsoluteWorldPosition_C);
+	float AdjustedSlopeFactor = lerp(1, MeshBlend_SlopeFactor, saturate((FadeSize - 5) * 0.2));
+	Out_BlendLength /= min(1.0, LengthFactor * 1.5);
+	Out_BlendLength = lerp(Out_BlendLength * AdjustedSlopeFactor, Out_BlendLength, Angle);
+
+
+	// factor1 works best close to the seam, but factor2 works best for the rest...
+	float OffsetFadeFactor2 = saturate(Out_BlendLength * InvMaxFade);
+
+	if (OffsetFadeFactor2 == 1)
+	{
+#if MESH_BLEND_VISUALIZE == VISUALIZE_SHADER_DEPTH
+		Out_BlendColor = GreenToRedHUE(0.8);
+		Out_BlendFactor = 1;
+		return;
+#endif
+
+		return;
+	}
+
+	float Fade = pow(1 - OffsetFadeFactor2, 2);
+
+
+#if MESH_BLEND_BLEED == 1
+    Fade = lerp(Fade * 2, 0, BleedFactor) * 0.5;
+#else
+	Fade = Fade * 0.5;
+#endif
+
+
+	float3 TempTargetColor = GetColor(UV + RoundAwayFromZero(Offset * 2) * PostProcessOutput_ExtentInverse).rgb;
+	float3 TempColorA = GetColor(UV + RoundAwayFromZero(Offset) * PostProcessOutput_ExtentInverse).rgb;
+	float3 TempColorB = GetColor(UV + RoundAwayFromZero(Offset + Direction) * PostProcessOutput_ExtentInverse).rgb;
+
+	float3 TargetColor = (TempTargetColor + TempColorA + TempColorB) / 3.0;
+	//TargetColor = TempTargetColor;
+
+	float TargetColorLuminance = Luminance(LinearToSrgb(saturate(TargetColor)));
+	float ResultColorLuminance = Luminance(LinearToSrgb(saturate(OrgColor)));
+	bool IsDark = TargetColorLuminance * 0.75 < ResultColorLuminance;
+
+	// Determine if we are in shadow (Shadow artifacts fix) ---
+#if MESH_BLEND_STAGE_SHADOW_FIX
+
+	BRANCH
+	if (!IsDark && Out_BlendLength > 1)
+	{
+#define SHADOW_FIX_VERSION 1
+
+#if SHADOW_FIX_VERSION == 1
+		float TargetShadows = GetShadows(UV + RoundAwayFromZero(Offset * 2) * PostProcessOutput_ExtentInverse, TempTargetColor);
+		float TargetShadows2 = GetShadows(UV + RoundAwayFromZero(Offset) * PostProcessOutput_ExtentInverse, TempColorA);
+		float TargetShadows3 = GetShadows(UV + RoundAwayFromZero(Offset + Direction) * PostProcessOutput_ExtentInverse, TempColorA);
+		TargetShadows2 = (TargetShadows2 + TargetShadows3) * 0.5;
+
+		float ShadowsAtEdgeFactor = saturate(TargetShadows2 * rcp(TargetShadows));
+		ShadowsAtEdgeFactor = saturate(Remap(ShadowsAtEdgeFactor, 0.1, lerp(1.5, 1, saturate(Fade * 2)), 0.0, 1));
+
+#elif SHADOW_FIX_VERSION == 2
+		float TargetShadows = Luminance(LinearToSrgb(GetColor(UV + RoundAwayFromZero(Offset * 2) * PostProcessOutput_ExtentInverse).rgb));
+		float TargetShadows2 = Luminance(LinearToSrgb(GetColor(UV + RoundAwayFromZero(Offset + Direction * 0) * PostProcessOutput_ExtentInverse).rgb));
+		float TargetShadows3 = Luminance(LinearToSrgb(GetColor(UV + RoundAwayFromZero(Offset + Direction * 1) * PostProcessOutput_ExtentInverse).rgb));
+		TargetShadows2 = (TargetShadows2 + TargetShadows3) * 0.5;
+
+		float ShadowsAtEdgeFactor = saturate(TargetShadows2 * rcp(TargetShadows));
+		//ShadowsAtEdgeFactor = saturate(Remap(ShadowsAtEdgeFactor, 0.1, lerp(1.5, 1, saturate(Fade * 2)), 0.0, 1.5));
+		//ShadowsAtEdgeFactor = pow(saturate(Remap(ShadowsAtEdgeFactor, 0, 1, -0.2, 1.5)), 2);
+		ShadowsAtEdgeFactor = pow(ShadowsAtEdgeFactor, 1);
+
+#else
+
+		float ShadowsAtEdgeFactor = 1.0;
+
+#endif
+
+		Fade *= saturate(ShadowsAtEdgeFactor);
+	}
+
+#endif
+
+	if (StencilToIgnore == 0 && Out_BlendLength < 1.5 && saturate(Out_BlendLength * rcp(MaxFade)) < 0.2 && Fade > 0.4 && Depth_A < 10000)
+	{
+		OrgColor = GetColor(UV - Direction * PostProcessOutput_ExtentInverse).rgb;
+	}
+
+
+#if MESH_BLEND_NOISE_TEXTURE
+	float DepthUnits = Depth_B * 0.001;
+	float DepthFloor = ceil(DepthUnits);
+	float DepthFrac = frac(DepthUnits);
+
+	float TileSize = 90;
+	float TileSizeA = TileSize * DepthFloor;
+	float TileSizeB = TileSize * (DepthFloor + 1);
+
+	float3 NoiseA = GetNoiseValue(UV, AbsoluteWorldPosition_A, TileSizeA);
+	float3 NoiseB = GetNoiseValue(UV, AbsoluteWorldPosition_A, TileSizeB);
+
+	float NoiseValue = lerp(NoiseA, NoiseB, DepthFrac);
+	
+	Fade = saturate(lerp(Fade - NoiseValue * MeshBlend_NoiseFactor, Fade, saturate(Fade * Fade * 5)));
+#endif
+
+
+#if MESH_BLEND_VISUALIZE == VISUALIZE_SIZE_AND_FADE
+		Out_BlendColor = float3(1, 1, 1) * 2;
+		Out_BlendFactor = Fade;
+		return;
+#endif
+
+#if MESH_BLEND_VISUALIZE == VISUALIZE_SHADER_DEPTH
+		Out_BlendColor = GreenToRedHUE(0.9);
+		Out_BlendFactor = 1;
+		return;
+#endif
+
+
+	Out_BlendColor = TargetColor;
+	Out_BlendFactor = Fade;
+}
+
+float4 CalculateMeshBlend(float2 UV, float4 SvPosition)
+{
+	float CurrentStencil = GetMeshBlendStencil(UV);
+	float ViewPortFactor = GetViewPortFactor();
+	float4 OrgColorWithAlpha = GetColor(UV);
+
+	if (CurrentStencil == 0.0 || CurrentStencil == 1.0)
+	{
+		return OrgColorWithAlpha;
+	}
+
+	float3 OrgColor = OrgColorWithAlpha.rgb;
+	float OrgColorAlpha = OrgColorWithAlpha.a;
+
+	float CurrentDepth = GetDepth(UV);
+	float DepthScale = GetTanHalfFieldOfView().y * 2 * CurrentDepth;
+	float FadeSize = GetFadeSize(CurrentStencil, ViewPortFactor);
+
+	float BlendStencil = 0;
+	float3 BlendColor = float3(0, 0, 0);
+	float BlendFactor = 0;
+	float BlendLength = 0;
+	bool ShouldRunSecondaryPass = false;
+
+	ComputeBlend(FadeSize,
+	             UV,
+	             SvPosition,
+	             OrgColor,
+	             CurrentStencil,
+	             DepthScale,
+	             ViewPortFactor,
+	             0,
+	             BlendStencil,
+	             BlendColor,
+	             BlendFactor,
+	             BlendLength,
+	             ShouldRunSecondaryPass);
+
+#if MESH_BLEND_VISUALIZE == VISUALIZE_SIZE_AND_FADE
+	OrgColor = lerp(Luminance(OrgColor), GetBlendSizeColor(CurrentStencil), 0.8);
+#endif
+
+
+	float3 ResultColor = sRGBToLinear(lerp(LinearToSrgb(OrgColor), LinearToSrgb(BlendColor), BlendFactor));
+
+
+	// Secondary pass. Fixes artifacts in corners where a pixel has more than one target to blend with ---
+
+	[branch] if (ShouldRunSecondaryPass && BlendStencil != 0)
+	{
+#if MESH_BLEND_VISUALIZE == VISUALIZE_SHADER_DEPTH
+		return float4(GreenToRedHUE(1), 1);
+#endif
+
+		float SecondPass_BlendStencil = 0;
+		float3 SecondPass_BlendColor = float3(0, 0, 0);
+		float SecondPass_BlendFactor = 0;
+		float SecondPass_BlendLength = 0;
+
+		ComputeBlend(FadeSize,
+		             UV,
+		             SvPosition,
+		             OrgColor,
+		             CurrentStencil,
+		             DepthScale,
+		             ViewPortFactor,
+		             BlendStencil,
+		             SecondPass_BlendStencil,
+		             SecondPass_BlendColor,
+		             SecondPass_BlendFactor,
+		             SecondPass_BlendLength,
+		             ShouldRunSecondaryPass);
+
+		if (SecondPass_BlendFactor > 0)
+		{
+			float3 SecondPass_Result = sRGBToLinear(lerp(LinearToSrgb(OrgColor), LinearToSrgb(SecondPass_BlendColor), SecondPass_BlendFactor));
+			float InvBlendFactors = rcp(BlendFactor + SecondPass_BlendFactor);
+			float3 TempResult = (ResultColor * BlendFactor * InvBlendFactors) + (SecondPass_Result * SecondPass_BlendFactor * InvBlendFactors);
+			ResultColor = sRGBToLinear(lerp(LinearToSrgb(ResultColor), LinearToSrgb(TempResult), saturate(BlendLength > 0 ? BlendLength * rcp(SecondPass_BlendLength) : 1)));
+		}
+	}
+
+
+	return float4(ResultColor, OrgColorAlpha);
+}

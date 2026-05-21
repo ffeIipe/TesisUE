@@ -14,6 +14,13 @@ class TESISUE_API USaveGameSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintCallable, Category = "SaveSystem")
+	static void SerializeProperties(UObject* Object, TArray<uint8>& OutBytes);
+
+	UFUNCTION(BlueprintCallable, Category = "SaveSystem")
+	static void DeserializeProperties(UObject* Object, const TArray<uint8>& InBytes);
+	
+public:
 	UFUNCTION(BlueprintCallable, Category = "Save System")
 	void SaveGame(int32 SlotIndex);
 

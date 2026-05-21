@@ -6,6 +6,52 @@
 #include "EngineUtils.h"
 #include "Features/SaveSystem/Core/SaveComponent.h"
 #include "GameFramework/Actor.h"
+#include "Serialization/ObjectAndNameAsStringProxyArchive.h"
+
+void USaveGameSubsystem::SerializeProperties(UObject* Object, TArray<uint8>& OutBytes)
+{
+    if (!IsValid(Object)) return;
+
+    FMemoryWriter Writer(OutBytes);
+    FObjectAndNameAsStringProxyArchive Ar(Writer, false);
+    Ar.ArIsSaveGame = true;
+
+    for (TFieldIterator<FProperty> PropIt(Object->GetClass()); PropIt; ++PropIt)
+    {
+        FProperty* Property = *PropIt;
+        if (Property->HasAnyPropertyFlags(CPF_SaveGame) && 
+        !Property->IsA<FObjectPropertyBase>() && 
+        !Property->IsA<FInterfaceProperty>())
+        {
+            void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Object);
+    
+            Property->SerializeItem(FStructuredArchiveFromArchive(Ar).GetSlot(), ValuePtr);
+        }
+    }
+}
+
+void USaveGameSubsystem::DeserializeProperties(UObject* Object, const TArray<uint8>& InBytes)
+{
+    if (!IsValid(Object) || InBytes.Num() == 0) return;
+
+    FMemoryReader Reader(InBytes);
+    FObjectAndNameAsStringProxyArchive Ar(Reader, false);
+    Ar.ArIsSaveGame = true;
+
+    for (TFieldIterator<FProperty> PropIt(Object->GetClass()); PropIt; ++PropIt)
+    {
+        FProperty* Property = *PropIt;
+        
+        if (Property->HasAnyPropertyFlags(CPF_SaveGame) && 
+    !Property->IsA<FObjectPropertyBase>() && 
+    !Property->IsA<FInterfaceProperty>())
+        {
+            void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Object);
+    
+            Property->SerializeItem(FStructuredArchiveFromArchive(Ar).GetSlot(), ValuePtr);
+        }
+    }
+}
 
 void USaveGameSubsystem::SaveGame(int32 SlotIndex)
 {

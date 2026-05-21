@@ -10,6 +10,9 @@ struct FTargetingData;
 class UTimelineComponent;
 class UCurveFloat;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTargetedEntityDead, AEntity*, EntityDead);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTargetedEntityChanged, AEntity*, NewEntity);
+
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class TESISUE_API UTargetingComponent : public UActorComponent
 {
@@ -27,6 +30,8 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Targeting")
     void DisableLock();
     
+    void RefreshTargets();
+
     UFUNCTION(BlueprintCallable, Category = "Targeting")
     void ChangeHardLockTarget();
 
@@ -50,11 +55,17 @@ public:
 
     UPROPERTY(BlueprintReadWrite, Category = "Targeting")
     float TargetingLostRadius = 2000.f;
-    
+
 protected:
     virtual void BeginPlay() override;
 
     virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+    UPROPERTY(EditAnywhere, BlueprintAssignable, Category = "Targeting")
+    FOnTargetedEntityDead OnTargetedEntityDead;
+
+    UPROPERTY(EditAnywhere, BlueprintAssignable, Category = "Targeting")
+    FOnTargetedEntityChanged OnTargetedEntityChanged;
 
 private:
     UPROPERTY()
@@ -72,4 +83,7 @@ private:
     int32 CombatTargetIndex = 0;
     
     bool bIsLocking = false;
+
+    float ActiveLockRange;
+    FTimerHandle TargetRefreshTimerHandle;
 };

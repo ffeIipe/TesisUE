@@ -60,19 +60,33 @@ void UTargetingComponent::HandleTargetDeath(AEntity* DeadEntity)
     {
         DeadEntity->OnDead.RemoveDynamic(this, &UTargetingComponent::HandleTargetDeath);
 
+        if (OnTargetedEntityDead.IsBound()) OnTargetedEntityDead.Broadcast(DeadEntity);
+
         ChangeHardLockTarget();
     }
 }
 
 void UTargetingComponent::EnableLock(const float LockRange)
 {
-    CombatTargets = GetTargets(LockRange);
+    ActiveLockRange = LockRange;
+    CombatTargets = GetTargets(ActiveLockRange);
     CurrentTarget = SelectNearestTarget(CombatTargets);
 
     if (CurrentTarget)
     {
         bIsLocking = true;
         SetComponentTickEnabled(true);
+
+        if (UWorld* World = GetWorld())
+        {
+            World->GetTimerManager().SetTimer(
+                TargetRefreshTimerHandle, 
+                this, 
+                &UTargetingComponent::RefreshTargets, 
+                0.5f, 
+                true
+            );
+        }
     }
 }
 
@@ -81,8 +95,31 @@ void UTargetingComponent::DisableLock()
     bIsLocking = false;
     SetComponentTickEnabled(false);
     
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(TargetRefreshTimerHandle);
+    }
+    
     CurrentTarget = nullptr;
     CombatTargets.Empty();
+}
+
+void UTargetingComponent::RefreshTargets()
+{
+    if (!bIsLocking) return;
+
+    CombatTargets = GetTargets(ActiveLockRange);
+
+    if (CombatTargets.Num() == 0)
+    {
+        DisableLock();
+        return;
+    }
+
+    if (CurrentTarget && !CombatTargets.Contains(CurrentTarget))
+    {
+        CurrentTarget = SelectNearestTarget(CombatTargets);
+    }
 }
 
 void UTargetingComponent::ChangeHardLockTarget()
@@ -117,6 +154,8 @@ void UTargetingComponent::ChangeHardLockTarget()
         {
             NewTarget->OnDead.AddUniqueDynamic(this, &UTargetingComponent::HandleTargetDeath);
         }
+
+        if (OnTargetedEntityChanged.IsBound()) OnTargetedEntityChanged.Broadcast(Cast<AEntity>(NewCandidate));
     }
 }
 

@@ -1,4 +1,6 @@
 #include "Features/InventorySystem/Core/InventoryComponent.h"
+
+#include "EngineUtils.h"
 #include "Features/InventorySystem/Interfaces/Pickable.h"
 
 #include "Blueprint/UserWidget.h"
@@ -9,6 +11,8 @@
 #include "HUD/Inventory.h"
 
 #include "DataAssets/EntityData.h"
+#include "Features/InventorySystem/Items/Weapon.h"
+#include "Features/SaveSystem/Core/SaveComponent.h"
 
 UInventoryComponent::UInventoryComponent()
 {
@@ -199,22 +203,20 @@ void UInventoryComponent::SaveInventory()
 
     for (const TScriptInterface<IPickable>& SlotItem : InventorySlots)
     {
+        FInventoryItemSaveData Data;
+        
         if (SlotItem && SlotItem.GetObject())
         {
             if (AActor* WeaponActor = Cast<AActor>(SlotItem.GetObject()))
             {
-                FInventoryItemSaveData NewData;
-                NewData.ActorClass = Cast<AActor>(WeaponActor)->GetClass();
-                // NewData.AmmoCount = SlotItem->GetCurrentAmmo();
-
-                SavedInventoryData.Add(NewData);
+                if (USaveComponent* SaveComp = WeaponActor->FindComponentByClass<USaveComponent>())
+                {
+                    Data.UniqueSaveID = SaveComp->UniqueSaveID;
+                }
             }
         }
-        else
-        {
-            FInventoryItemSaveData EmptyData;
-            SavedInventoryData.Add(EmptyData);
-        }
+        
+        SavedInventoryData.Add(Data);
     }
 }
 
@@ -222,35 +224,50 @@ void UInventoryComponent::LoadInventory()
 {
     InventorySlots.Empty();
     InventorySlots.Init(nullptr, MaxSlots);
+    CurrentItem = nullptr;
+}
+
+void UInventoryComponent::ReconstructInventory()
+{
+    TMap<FGuid, AActor*> WorldSaveActors;
+    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+    {
+        if (USaveComponent* SaveComp = (*It)->FindComponentByClass<USaveComponent>())
+        {
+            WorldSaveActors.Add(SaveComp->UniqueSaveID, *It);
+        }
+    }
 
     for (int32 i = 0; i < SavedInventoryData.Num(); i++)
     {
-        const FInventoryItemSaveData& Data = SavedInventoryData[i];
+        const FGuid& SavedID = SavedInventoryData[i].UniqueSaveID;
 
-        if (Data.ActorClass)
+        if (SavedID.IsValid() && WorldSaveActors.Contains(SavedID))
         {
-            FActorSpawnParameters SpawnParams;
-            SpawnParams.Owner = GetOwner();
-            SpawnParams.Instigator = Cast<APawn>(GetOwner());
-            SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-            if (AActor* NewActor = GetWorld()->SpawnActor<AActor>(Data.ActorClass, GetOwner()->GetActorTransform(), SpawnParams))
+            AActor* RestoredActor = WorldSaveActors[SavedID];
+        
+            InventorySlots[i] = RestoredActor;
+        
+            if (RestoredActor->Implements<UPickable>())
             {
-                // NewWeapon->SetAmmo(Data.AmmoCount);
-                
-                if (InventorySlots.IsValidIndex(i))
+                const TScriptInterface<IPickable> Pickable = RestoredActor;
+            
+                Pickable->Execute_OnEnteredInventory(Pickable.GetObject(), GetOwner());
+
+                if (i != EquippedSlotIndex)
                 {
-                    InventorySlots[i] = NewActor;
-                    
-                    if (NewActor->Implements<UPickable>())
+                    if (AWeapon* RestoredWeapon = Cast<AWeapon>(RestoredActor))
                     {
-                        const TScriptInterface<IPickable> Pickable = NewActor;
-                        
-                        Pickable->Execute_OnEnteredInventory(Pickable.GetObject(), GetOwner());
+                        RestoredWeapon->Holster();
                     }
                 }
             }
         }
+    }
+
+    if (EquippedSlotIndex >= 0 && EquippedSlotIndex < MaxSlots)
+    {
+        EquipItemFromSlot(EquippedSlotIndex);
     }
 
     UpdateInventoryUI();

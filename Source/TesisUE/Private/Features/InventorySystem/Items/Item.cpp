@@ -70,12 +70,6 @@ void AItem::OnLoadGame_Implementation(const FEntitySaveData& InData)
 	FObjectAndNameAsStringProxyArchive Ar(MemReader, true);
 	Ar.ArIsSaveGame = true;
 	this->Serialize(Ar);
-
-	
-	if (bWasUsed && GetOwner() == nullptr)
-	{
-		OnPostGameLoaded_Implementation();
-	}
 }
 
 void AItem::OnPostGameLoaded_Implementation()

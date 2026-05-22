@@ -18,6 +18,12 @@ struct FInventoryItemSaveData
     GENERATED_BODY()
 
     UPROPERTY(SaveGame)
+    FGuid LastOwnerSaveID;
+    
+    UPROPERTY(SaveGame)
+    FGuid UniqueSaveID;
+    
+    UPROPERTY(SaveGame)
     TSubclassOf<AActor> ActorClass;
 
     // Si tenías munición descomentada en tu código antiguo, agrega esto:
@@ -85,6 +91,9 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Inventory|SaveGame")
     void LoadInventory();
+
+    UFUNCTION(BlueprintCallable, Category = "Inventory|SaveGame")
+    void ReconstructInventory();
 
 protected:
     virtual void BeginPlay() override;

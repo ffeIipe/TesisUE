@@ -242,7 +242,8 @@ void USaveGameSubsystem::LoadLevelActors(UPlayerProgressSaveGame* SaveObject) co
         }
     }
 
-    for (const auto& Pair : SaveObject->SavedActors)
+    //Dynamics objects
+    /*for (const auto& Pair : SaveObject->SavedActors)
     {
         FGuid SavedID = Pair.Key;
 
@@ -272,7 +273,7 @@ void USaveGameSubsystem::LoadLevelActors(UPlayerProgressSaveGame* SaveObject) co
                 }
             }
         }
-    }
+    }*/
 
     if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Emerald, FString::Printf(TEXT("SUCCESS: Se restauraron %d Estáticos y %d Dinámicos!"), RestoredStaticCount, RestoredDynamicCount));
 }

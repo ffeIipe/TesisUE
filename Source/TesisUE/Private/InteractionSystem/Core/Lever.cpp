@@ -53,9 +53,6 @@ void ALever::SetLeverState(const bool bNewState)
 {
 	bIsActive = bNewState;
 
-	/*const float RotPitch = bIsActive ? -45.0f : 45.0f;
-	MeshComp->SetRelativeRotation(FRotator(RotPitch, 0.0f, 0.0f));*/
-
 	for (AActor* Target : LinkedTargets)
 	{
 		if (!Target) continue;

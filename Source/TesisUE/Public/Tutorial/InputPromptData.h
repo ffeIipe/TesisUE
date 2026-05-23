@@ -10,13 +10,13 @@ struct FInputPromptData : public FTableRowBase
     GENERATED_BODY()
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly)
-    FName InputName;
+    FName InputName = NAME_None;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly)
-    UTexture2D* KeyboardIcon;
+    UTexture2D* KeyboardIcon = nullptr;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly)
-    UTexture2D* GamepadIcon;
+    UTexture2D* GamepadIcon = nullptr;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly)
     FText DisplayText;

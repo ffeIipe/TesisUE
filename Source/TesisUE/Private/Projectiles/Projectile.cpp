@@ -4,8 +4,6 @@
 #include "Projectiles/Projectile.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
-#include "Player/PlayerMain.h"
-#include "Enemy/Enemy.h"
 #include "NiagaraComponent.h"
 
 AProjectile::AProjectile()

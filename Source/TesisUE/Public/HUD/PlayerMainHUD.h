@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
-#include "Tutorial/InputPromptData.h"
 #include "PlayerMainHUD.generated.h"
 
 class UInputPromptWidget;
@@ -21,28 +20,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player")
 	TSubclassOf<UPlayerMainWidget> PlayerMainWidgetClass;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paladin")
-	TSubclassOf<UUserWidget> PaladinUIWidgetClass;
-
 public:
-	void SetPaladinBossHealthBar();
-
-	UFUNCTION(BlueprintCallable)
-	void RemovePaladinBossHealthBar();
-
-	void TogglePaladinUI(bool Bool);
-
 	UFUNCTION(BlueprintCallable)
 	void TogglePlayerUI(bool Bool);
-	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boss")
-	TSubclassOf<UUserWidget> PaladinBossMainWidgetClass;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player")
 	UPlayerMainWidget* PlayerMainWidgetInstance = nullptr;
-
-	UPaladinBossHealthBar* PaladinBossHealthBarInstance = nullptr;
-
-	UUserWidget* PaladinUIInstance = nullptr;
 
 private:
 	bool bAlreadySetted = false;

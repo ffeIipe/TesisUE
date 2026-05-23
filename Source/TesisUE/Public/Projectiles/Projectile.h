@@ -22,7 +22,7 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	UPROPERTY(EditDefaultsOnly);
+	UPROPERTY(BlueprintReadWrite);
 	float Damage;
 
 	UPROPERTY(EditAnywhere, Category = "Projectile | Collider")

@@ -1,0 +1,109 @@
+// Copyright 2024 Tore Lervik. All Rights Reserved.
+
+#include "/Engine/Private/DeferredShadingCommon.ush"
+#include "PPCommon.usf"
+
+#if SUBSTRATE_ENABLED
+
+#define NEEDS_SCENE_TEXTURES 1
+#define SCENE_TEXTURES_DISABLED 0
+
+#include "/Engine/Private/Substrate/Substrate.ush"
+
+#ifdef SubstrateStruct
+	#define SubstratePublicStruct SubstrateStruct
+#else
+	#define SubstratePublicStruct Substrate
+#endif
+#include "/Engine/Public/SubstratePublic.ush"
+#undef SubstratePublicStruct
+
+#else
+struct FSubstrateData
+{
+	uint Dummy;
+};
+
+FSubstrateData GetInitialisedSubstrateData() { return (FSubstrateData)0; }
+#endif
+
+Texture2D NoiseTexture;
+SamplerState NoiseTextureSampler;
+
+//////////////////////////////////////////////////////////////////////////
+//! Must match ESceneTextureId
+//! Reference: Engine/Shaders/Private/PostProcessMaterialShaders.usf
+
+#define PPI_SceneDepth 1
+#define PPI_BaseColor 5
+#define PPI_WorldNormal 8
+#define PPI_MaterialAO 12
+
+//////////////////////////////////////////////////////////////////////////
+//! Reference: Engine/Shaders/Private/MaterialTemplate.ush
+
+float4 MeshBlendSceneTextureLookup(float2 UV, int SceneTextureIndex)
+{
+#if SUBTRATE_GBUFFER_FORMAT==1 || SUBSTRATE_ENABLED
+	{
+		const uint2 PixelPos = uint2(UV * View.BufferSizeAndInvSize.xy);
+		FSubstrateGBuffer SubstrateGBuffer = SubstratePublic_GetSubstrateGBufferFromFirstBSDF(PixelPos);
+
+		if (SubstrateGBuffer.bIsValid > 0)
+		{
+			switch (SceneTextureIndex)
+			{
+			case PPI_BaseColor: return float4(SubstrateGBuffer.BaseColor, 0);
+			case PPI_WorldNormal: return float4(SubstrateGBuffer.WorldNormal, 0);
+			case PPI_SceneDepth: return CalcSceneDepth(UV);
+			case PPI_MaterialAO: return SubstrateGBuffer.MaterialAO;
+			}
+		}
+	}
+#else
+	{
+		FScreenSpaceData ScreenSpaceData = GetScreenSpaceData(UV, false);
+
+		switch (SceneTextureIndex)
+		{
+		case PPI_BaseColor: return float4(ScreenSpaceData.GBuffer.BaseColor, 0);
+		case PPI_WorldNormal: return float4(ScreenSpaceData.GBuffer.WorldNormal, 0);
+		case PPI_SceneDepth: return ScreenSpaceData.GBuffer.Depth;
+		case PPI_MaterialAO: return ScreenSpaceData.GBuffer.GBufferAO;
+		}
+	}
+#endif
+
+	return float4(0, 0, 0, 0);
+}
+
+
+float4 GetColor(float2 UV)
+{
+	return Texture2DSample(PostProcessInput_0_Texture, PostProcessInput_0_SharedSampler, UV);
+}
+
+float3 GetWorldNormal(float2 UV)
+{
+	return MeshBlendSceneTextureLookup(UV, PPI_WorldNormal).rgb;
+}
+
+float3 GetBaseColor(float2 UV)
+{
+	return MeshBlendSceneTextureLookup(UV, PPI_BaseColor);
+}
+
+float GetMeshBlendStencil(float2 UV)
+{
+	return MeshBlendSceneTextureLookup(UV, PPI_MaterialAO).r;
+}
+
+float GetDepth(float2 UV)
+{
+	return MeshBlendSceneTextureLookup(UV, PPI_SceneDepth).r;
+}
+
+float GetNoise(float2 UV, float2 DDX, float2 DDY)
+{
+	return NoiseTexture.SampleGrad(NoiseTextureSampler, UV, DDX, DDY).r;
+}

@@ -5,8 +5,22 @@
 UPromptWidgetComponent::UPromptWidgetComponent()
 {
     bUseGamepadIcon = false;
-    PromptDataTable = nullptr;
-    PromptRowName = NAME_None;
+
+    static ConstructorHelpers::FObjectFinder<UDataTable> InputDataTable(TEXT("/Game/Blueprints/DataTables/DT_InputPrompts.DT_InputPrompts"));
+    if (InputDataTable.Succeeded())
+    {  
+        PromptDataTable = InputDataTable.Object;
+    }
+
+    /*static ConstructorHelpers::FObjectFinder<UInputPromptWidget> InputPromptWidgetClass(TEXT("/Game/Blueprints/Tutorial/WBP_InputPrompt.WBP_InputPrompt"));
+    if (InputPromptWidgetClass.Succeeded())
+    {  
+        SetWidgetClass(InputPromptWidgetClass.Object->GetClass());
+    }*/
+    /*else if (GEngine) GEngine->AddOnScreenDebugMessage(INDEX_NONE, 3.f, FColor::Red, "Missing! Input Prompt Widget");*/
+    
+    SetDrawAtDesiredSize(true);
+    SetWidgetSpace(EWidgetSpace::Screen);
 }
 
 void UPromptWidgetComponent::BeginPlay()
@@ -38,14 +52,26 @@ void UPromptWidgetComponent::LoadAndApplyPrompt()
     }
 }
 
-void UPromptWidgetComponent::EnablePromptWidget(bool bIsEnable)
+void UPromptWidgetComponent::EnablePromptWidget()
 {
-    ESlateVisibility NewWidgetVisibility = bIsEnable ? ESlateVisibility::Visible : ESlateVisibility::Hidden;
-    bool bNewComponentVisibility = bIsEnable;
-
     if (GetWidget())
     {
-        GetWidget()->SetVisibility(NewWidgetVisibility);
+        GetWidget()->SetVisibility(ESlateVisibility::Visible);
     }
-    SetVisibility(bNewComponentVisibility);
+    SetHiddenInGame(false);
+    SetVisibility(true);
+
+    /*GEngine->AddOnScreenDebugMessage(INDEX_NONE, 3.f, FColor::Green, "Prompt Widget Enabled");*/
+}
+
+void UPromptWidgetComponent::DisablePromptWidget()
+{
+    if (GetWidget())
+    {
+        GetWidget()->SetVisibility(ESlateVisibility::Hidden);
+    }
+    SetHiddenInGame(true);
+    SetVisibility(false);
+
+    /*GEngine->AddOnScreenDebugMessage(INDEX_NONE, 3.f, FColor::Red, "Prompt Widget Disabled");*/
 }

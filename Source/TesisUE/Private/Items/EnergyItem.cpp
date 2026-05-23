@@ -1,28 +1,23 @@
 #include "Items/EnergyItem.h"
-#include "Player/PlayerMain.h"
-#include "Components/AttributeComponent.h"
 #include "Kismet/GameplayStatics.h"
-#include "Tutorial/PromptWidgetComponent.h"
 
-void AEnergyItem::Use(ACharacter* TargetCharacter)
+
+void AEnergyItem::OnEnteredInventory_Implementation(AActor* NewOwner)
 {
+	Super::OnEnteredInventory_Implementation(NewOwner);
+
 	if (bWasUsed) return;
 
 	bWasUsed = true;
 
-	User = TargetCharacter;
-
-	AEntity* UserEntity = Cast<AEntity>(TargetCharacter);
-
-	if (UserEntity && UserEntity->GetAttributeComponent())
+	if (NewOwner)
 	{
-		UserEntity->GetAttributeComponent()->IncreaseEnergy(EnergyToIncrease);
-
-		UserEntity->GetAttributeComponent()->SetHealth(UserEntity->GetAttributeComponent()->GetHealth() + HealthToIncrease);
+		//AttributeProvider->IncreaseHealth(HealthToIncrease);
+		//AttributeProvider->IncreaseEnergy(EnergyToIncrease);
 
 		if (OnUsedSpawnEnergy.IsBound())
 		{
-			int32 EnergyOrbs = FMath::RoundToInt(EnergyToIncrease / 5);
+			const int32 EnergyOrbs = FMath::RoundToInt(EnergyToIncrease / 5);
 
 			for (int32 i = 0; i < EnergyOrbs; i++)
 			{
@@ -32,7 +27,7 @@ void AEnergyItem::Use(ACharacter* TargetCharacter)
 
 		if (OnUsedSpawnLife.IsBound())
 		{
-			int32 LifeOrbs = FMath::RoundToInt((HealthToIncrease) / 5);
+			const int32 LifeOrbs = FMath::RoundToInt(HealthToIncrease / 5);
 
 			for (int32 i = 0; i < LifeOrbs; i++)
 			{
@@ -54,7 +49,5 @@ void AEnergyItem::Use(ACharacter* TargetCharacter)
 		{
 			UGameplayStatics::PlaySoundAtLocation(GetWorld(), HealthSFX, ItemMesh->GetComponentLocation());
 		}
-
-		PromptWidget->EnablePromptWidget(false);
 	}
 }

@@ -4,9 +4,8 @@
 #include "HUD/HealthBarComponent.h"
 #include "HUD/HealthBar.h"
 #include "Components/ProgressBar.h"
-#include "Enemy/Enemy.h"
 
-UHealthBarComponent::UHealthBarComponent()
+UHealthBarComponent::UHealthBarComponent(): HealthBarWidget(nullptr), PlayerMain(nullptr)
 {
 	PrimaryComponentTick.bCanEverTick = false;
 }
@@ -59,9 +58,9 @@ void UHealthBarComponent::SetHealthOpacity(float DeltaTime)
 {
 	if (PlayerMain && HealthBarWidget && HealthBarWidget->HealthBar)
 	{
-		if (HealthBarWidget->HealthBar->Percent >= 0)
+		if (HealthBarWidget->HealthBar->GetPercent() >= 0)
 		{
-			float Distance = FVector::Dist(PlayerMain->GetActorLocation(), GetOwner()->GetActorLocation());
+			const float Distance = FVector::Dist(PlayerMain->GetActorLocation(), GetOwner()->GetActorLocation());
 			TargetOpacity = FMath::Clamp(1.f - ((Distance - MinDistance) / (MaxDistance - MinDistance)), 0.f, 1.f);
 			CurrentOpacity = FMath::Lerp(CurrentOpacity, TargetOpacity, DeltaTime * 5.f);
 			HealthBarWidget->HealthBar->SetRenderOpacity(CurrentOpacity);

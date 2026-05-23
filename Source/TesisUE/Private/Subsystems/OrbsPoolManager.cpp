@@ -1,6 +1,6 @@
 #include "Subsystems/OrbsPoolManager.h"
-#include "Items/Item.h"
-#include <Interfaces/OrbPoolingInterface.h>
+#include "Interfaces/OrbPoolingInterface.h"
+#include "Features/InventorySystem/Items/Item.h"
 
 void UOrbsPoolManager::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -33,14 +33,12 @@ void UOrbsPoolManager::EnsurePoolInitialized(TSubclassOf<AActor> OrbsClass, int3
         return;
     }
 
-    FOrbsPool* Pool = GetOrCreatePool(OrbsClass);
-    if (Pool)
+    if (FOrbsPool* Pool = GetOrCreatePool(OrbsClass))
     {
-        int32 OrbsToCreate = InitialPoolSize - Pool->PooledItems.Num();
+        const int32 OrbsToCreate = InitialPoolSize - Pool->PooledItems.Num();
         for (int32 i = 0; i < OrbsToCreate; ++i)
         {
-            AActor* NewItem = SpawnNewOrbForPool(OrbsClass, FVector::ZeroVector, FRotator::ZeroRotator, nullptr, nullptr);
-            if (NewItem)
+            if (AActor* NewItem = SpawnNewOrbForPool(OrbsClass, FVector::ZeroVector, FRotator::ZeroRotator, nullptr, nullptr))
             {
                 if (NewItem->GetClass()->ImplementsInterface(UOrbPoolingInterface::StaticClass()))
                 {
@@ -53,7 +51,7 @@ void UOrbsPoolManager::EnsurePoolInitialized(TSubclassOf<AActor> OrbsClass, int3
     }
 }
 
-AActor* UOrbsPoolManager::SpawnOrbFromPool(TSubclassOf<AActor> OrbsClass, const FVector& Location, const FRotator& Rotation, AActor* Owner, APawn* Instigator)
+AActor* UOrbsPoolManager::SpawnOrbFromPool(const TSubclassOf<AActor> OrbsClass, const FVector& Location, const FRotator& Rotation, AActor* Owner, APawn* Instigator)
 {
     if (!OrbsClass)
     {
@@ -61,7 +59,7 @@ AActor* UOrbsPoolManager::SpawnOrbFromPool(TSubclassOf<AActor> OrbsClass, const 
     }
 
     FOrbsPool* Pool = GetOrCreatePool(OrbsClass);
-    AActor* ItemToSpawn = nullptr;
+    AActor* ItemToSpawn;
 
     if (Pool && Pool->PooledItems.Num() > 0)
     {
@@ -95,10 +93,9 @@ void UOrbsPoolManager::ReturnOrbToPool(AActor* Orb)
 {
     if (!Orb) return;
 
-    TSubclassOf<AItem> ItemClass = Orb->GetClass();
-    FOrbsPool* Pool = GetOrCreatePool(ItemClass);
+    const TSubclassOf<AItem> ItemClass = Orb->GetClass();
 
-    if (Pool)
+    if (FOrbsPool* Pool = GetOrCreatePool(ItemClass))
     {
         if (Orb->GetClass()->ImplementsInterface(UOrbPoolingInterface::StaticClass()))
         {
@@ -112,7 +109,7 @@ void UOrbsPoolManager::ReturnOrbToPool(AActor* Orb)
     }
 }
 
-FOrbsPool* UOrbsPoolManager::GetOrCreatePool(TSubclassOf<AActor> OrbsClass)
+FOrbsPool* UOrbsPoolManager::GetOrCreatePool(const TSubclassOf<AActor>& OrbsClass)
 {
     if (!OrbsClass) return nullptr;
 
@@ -127,7 +124,7 @@ FOrbsPool* UOrbsPoolManager::GetOrCreatePool(TSubclassOf<AActor> OrbsClass)
     return FoundPool;
 }
 
-AActor* UOrbsPoolManager::SpawnNewOrbForPool(TSubclassOf<AActor> OrbsClass, const FVector& Location, const FRotator& Rotation, AActor* Owner, APawn* Instigator)
+AActor* UOrbsPoolManager::SpawnNewOrbForPool(const TSubclassOf<AActor>& OrbsClass, const FVector& Location, const FRotator& Rotation, AActor* Owner, APawn* Instigator)
 {
     UWorld* World = GetWorld();
     if (!World || !OrbsClass)

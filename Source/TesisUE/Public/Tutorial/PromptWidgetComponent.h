@@ -17,16 +17,22 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Prompt")
     void LoadAndApplyPrompt();
 
-    void EnablePromptWidget(bool bIsEnable);
+    UFUNCTION()
+    void EnablePromptWidget();
 
+    UFUNCTION()
+    void DisablePromptWidget();
+    
     UPromptWidgetComponent* GetPromptWidgetComponent() { return this; };
 
+    void SetPromptRowName(const FName& RowName) { PromptRowName = RowName; }
+    
 protected:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Prompt")
-    UDataTable* PromptDataTable;
+    UDataTable* PromptDataTable = nullptr;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Prompt")
-    FName PromptRowName;
+    FName PromptRowName = NAME_None;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Prompt")
     bool bUseGamepadIcon;

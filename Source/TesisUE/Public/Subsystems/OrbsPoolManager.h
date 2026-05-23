@@ -46,8 +46,8 @@ private:
     UPROPERTY()
     TMap<TSubclassOf<AActor>, FOrbsPool> OrbsPools;
 
-    FOrbsPool* GetOrCreatePool(TSubclassOf<AActor> OrbsClass);
+    FOrbsPool* GetOrCreatePool(const TSubclassOf<AActor>& OrbsClass);
 
-    AActor* SpawnNewOrbForPool(TSubclassOf<AActor> OrbsClass, const FVector& Location, const FRotator& Rotation, AActor* Owner, APawn* Instigator);
+    AActor* SpawnNewOrbForPool(const TSubclassOf<AActor>& OrbsClass, const FVector& Location, const FRotator& Rotation, AActor* Owner, APawn* Instigator);
 
 };

@@ -1,25 +1,29 @@
 #include "Items/Weapons/Sword.h"
+
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemInterface.h"
 #include "Components/BoxComponent.h"
+#include "Components/SphereComponent.h"
 #include "Kismet/KismetSystemLibrary.h"
-#include "Kismet/GameplayStatics.h"
-#include "Interfaces/HitInterface.h"
-#include "Engine/DamageEvents.h"
-#include "Player/PlayerMain.h"
-#include "Interfaces/CharacterState.h"
-#include "Components/CharacterStateComponent.h"
-#include "Components/CombatComponent.h"
-#include <NiagaraFunctionLibrary.h>
-#include <Kismet/KismetMathLibrary.h>
+
+#include "DataAssets/Items/Weapons/SwordData.h"
+#include "Features/GlobalEffectsSystem/Interfaces/EffectManagerProvider.h"
+#include "GameFramework/Character.h"
+#include "GAS/VelmaraAbilityInputID.h"
+#include "GAS/VelmaraGameplayAbility.h"
 
 ASword::ASword()
 {
-	BoxCollider->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	SphereCollider->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 
-	WeaponBox = CreateDefaultSubobject<UBoxComponent>(TEXT("Weapon Box"));
-	WeaponBox->SetupAttachment(GetRootComponent());
-	WeaponBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	WeaponBox->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Overlap);
-	WeaponBox->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
+	WeaponDamageBox = CreateDefaultSubobject<UBoxComponent>(TEXT("Weapon Box"));
+	WeaponDamageBox->SetupAttachment(GetRootComponent());
+	WeaponDamageBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponDamageBox->SetCollisionResponseToAllChannels(ECR_Overlap);
+	WeaponDamageBox->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	WeaponDamageBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	WeaponDamageBox->OnComponentBeginOverlap.AddDynamic(this, &ASword::OnBoxOverlap);
 
 	BoxTraceStart = CreateDefaultSubobject<USceneComponent>(TEXT("Box Trace Start"));
 	BoxTraceStart->SetupAttachment(GetRootComponent());
@@ -32,63 +36,107 @@ void ASword::BeginPlay()
 {
 	Super::BeginPlay();
 
-	WeaponBox->OnComponentBeginOverlap.AddDynamic(this, &ASword::OnBoxOverlap);
-}
-
-void ASword::Equip(USceneComponent* InParent, FName InSocketName, AActor* NewOwner, APawn* NewInstigator)
-{
-	Super::Equip(InParent, InSocketName, NewOwner, NewInstigator);
-
-	AttachMeshToSocket(InParent, InSocketName);
-	SetOwner(NewOwner);
-	SetInstigator(NewInstigator);
-	ItemState = EItemState::EIS_Equipped;
-
-	EnableSwordState(true);
-
-	CharacterStateInterface = Cast<ICharacterState>(NewOwner);
-	if (CharacterStateInterface)
+	if (!SwordData)
 	{
-		CharacterStateComponent = CharacterStateInterface->Execute_GetCharacterStateComponent(NewOwner);
+		//if (GEngine) GEngine->AddOnScreenDebugMessage(INDEX_NONE, 3.f, FColor::Red, "MISSING! Data asset of: " + GetName() + " is nullptr.");
 	}
 }
 
-void ASword::Unequip()
+void ASword::Equip()
 {
-	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
-	EnableSwordState(false);
-	//la anim la pongo en el propio player al cambiar de arma
-	AttachMeshToSocket(OwnerCharacter->GetMesh(), FName("BackSocket"));
-}
+	Super::Equip();
 
-void ASword::AttachMeshToSocket(USceneComponent* InParent, const FName& InSocketName)
-{
-	FAttachmentTransformRules TransformRules(EAttachmentRule::SnapToTarget, true);
-	ItemMesh->AttachToComponent(InParent, TransformRules, InSocketName);
-}
+	IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(GetOwner());
+	if (!ASI) return;
 
-void ASword::EnableSwordState(bool bEnable)
-{
-	if (CharacterStateComponent)
+	UAbilitySystemComponent* ASC = ASI->GetAbilitySystemComponent();
+	if (!ASC) return;
+		
+	if (SwordData && SwordData->WeaponTag.IsValid())
 	{
-		ECharacterStates NewState = bEnable ? ECharacterStates::ECS_EquippedSword : ECharacterStates::ECS_Unequipped;
-		CharacterStateComponent->SetCharacterState(NewState);
+		if (ASC->HasMatchingGameplayTag(SwordData->WeaponTag)) return;
+		
+		ASC->AddLooseGameplayTag(SwordData->WeaponTag);
+	}
+
+	if (SwordData)
+	{
+		for (TSubclassOf AbilityClass : SwordData->AbilitiesToGrant)
+		{
+			if (AbilityClass)
+			{
+				EVelmaraAbilityInputID InputID = EVelmaraAbilityInputID::None;
+				if (UVelmaraGameplayAbility* VGA = Cast<UVelmaraGameplayAbility>(AbilityClass.GetDefaultObject()))
+				{
+					InputID = VGA->AbilityInputID;
+				}
+
+				FGameplayAbilitySpec Spec(AbilityClass, 1, static_cast<int32>(InputID), this); 
+				FGameplayAbilitySpecHandle Handle = ASC->GiveAbility(Spec);
+				GrantedAbilityHandles.Add(Handle);
+			}
+		}
+
+		if (IsValid(SwordData->AnimLayer))
+		{
+			if (const ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner()))
+			{
+				CharacterOwner->GetMesh()->GetAnimInstance()->LinkAnimClassLayers(SwordData->AnimLayer);
+			}
+		}
 	}
 }
 
-UPrimitiveComponent* ASword::GetCollisionComponent()
+void ASword::Holster()
 {
-	return WeaponBox;
+	Super::Holster();
+
+	IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(GetOwner());
+	if (!ASI) return;
+	
+	UAbilitySystemComponent* ASC = ASI->GetAbilitySystemComponent();
+	if (!ASC) return;
+	
+	for (const FGameplayAbilitySpecHandle& Handle : GrantedAbilityHandles)
+	{
+		if (Handle.IsValid())
+		{
+			ASC->ClearAbility(Handle);
+		}
+	}
+
+	GrantedAbilityHandles.Empty();
+	
+	ASC->RemoveLooseGameplayTag(SwordData->WeaponTag);
+
+	if (!ASC->HasMatchingGameplayTag(SwordData->HolsterTag))
+	{
+		ASC->AddLooseGameplayTag(SwordData->HolsterTag);
+	}
+
+	if (IsValid(SwordData->AnimLayer))
+	{
+		if (const ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner()))
+		{
+			CharacterOwner->GetMesh()->GetAnimInstance()->UnlinkAnimClassLayers(SwordData->AnimLayer);
+		}
+	}
 }
 
-void ASword::OnSphereBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+void ASword::AttachMeshToSocket(USceneComponent* InParent, const FName InSocketName)
 {
-	Super::OnSphereBeginOverlap(OverlappedComponent, OtherActor, OtherComp, OtherBodyIndex, bFromSweep, SweepResult);
-}
+	Super::AttachMeshToSocket(InParent, InSocketName);
 
-void ASword::OnSphereEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
-{
-	Super::OnSphereEndOverlap(OverlappedComponent, OtherActor, OtherComp, OtherBodyIndex);
+	const FAttachmentTransformRules TransformRules(EAttachmentRule::SnapToTarget, true);
+
+	if (InSocketName == NAME_None)
+	{
+		ItemMesh->AttachToComponent(InParent, TransformRules, SwordData->CustomInSocketName);
+	}
+	else
+	{
+		ItemMesh->AttachToComponent(InParent, TransformRules, InSocketName);
+	}
 }
 
 void ASword::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
@@ -107,7 +155,7 @@ void ASword::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* Othe
 		End,
 		FVector(25.f, 25.f, 25.f),
 		BoxTraceStart->GetComponentRotation(),
-		UEngineTypes::ConvertToTraceType(ECollisionChannel::ECC_GameTraceChannel3),
+		UEngineTypes::ConvertToTraceType(ECC_GameTraceChannel3),
 		false,
 		IgnoreActors,
 		EDrawDebugTrace::None,
@@ -117,93 +165,59 @@ void ASword::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* Othe
 
 	for (const FHitResult& Hit : HitResults)
 	{
-		if (AActor* HitActor = Hit.GetActor())
+		if (IgnoreActors.Contains(Hit.GetActor())) return;
+
+		IgnoreActors.Add(Hit.GetActor());
+		
+		if (const TScriptInterface<IAbilitySystemInterface> TargetASI = Hit.GetActor())
 		{
-			if (IHitInterface* HitInterface = Cast<IHitInterface>(HitActor))
+			UAbilitySystemComponent* TargetASC = TargetASI->GetAbilitySystemComponent();
+			
+			if (TargetASC && DamageEffectSpecHandle.IsValid())
 			{
-				float TempDamage = CalculateDamage();
-
-				FDamageEvent DamageEvent(DamageTypeClass);
-				HitInterface->Execute_GetHit(HitActor, GetOwner(), Hit.ImpactPoint, DamageEvent, Damage);
-
-				if (HitInterface->Execute_IsLaunchable(HitActor, Cast<ACharacter>(Owner)))
-				{
-					/*if (DamageTypeClass)
-					{
-						if (GEngine) GEngine->AddOnScreenDebugMessage(INDEX_NONE, 3.f, FColor::White, FString(DamageTypeClass->GetName()));
-					}
-					else 
-					{
-						DamageTypeClass = UDamageType::StaticClass();
-					}*/
-
-					UGameplayStatics::ApplyDamage(
-						HitActor,
-						Damage,
-						GetInstigator()->GetController(),
-						GetOwner(),
-						DamageTypeClass
-					);
-
-					//fx when the hit is true
-					CameraShake();
-					HitStop(.0005f, .01f);
-
-					IgnoreActors.Add(HitActor);
-				}
-				else //else si no es hitteable (tengo que cambiar nombre de la funcion)
-				{
-					if (SparksEffect)
-					{
-						UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-							GetWorld(),
-							SparksEffect,
-							Hit.ImpactPoint,
-							Hit.ImpactNormal.Rotation(),
-							FVector(1.f),
-							true
-						);
-					}
-
-					//APlayerMain* PlayerRef = Cast<APlayerMain>(GetOwner());
-					//PlayerRef->CombatComponent->HitReactJumpToSection(FName("ReactToShield"));
-
-					if (ShieldImpactSFX)
-					{
-						UGameplayStatics::PlaySoundAtLocation(GetWorld(), ShieldImpactSFX, Hit.ImpactPoint);
-					}
-				}
+				//Set the damage type
+				DamageEffectSpecHandle.Data.Get()->AddDynamicAssetTag(CurrentDamageTag);
 				
+				//Also sending the hit result
+				FGameplayEffectContextHandle Context = GetOwner()->FindComponentByClass<UAbilitySystemComponent>()->MakeEffectContext();
+				Context.AddHitResult(Hit);
+
+				DamageEffectSpecHandle.Data->SetContext(Context);
 				
+				//Applying the gameplay effect to the hit actor
+				GetOwner()->FindComponentByClass<UAbilitySystemComponent>()->ApplyGameplayEffectSpecToTarget(
+					*DamageEffectSpecHandle.Data.Get(),
+					TargetASC
+				);
+				
+				//VFX call
+				FGameplayCueParameters CueParameters;
+				CueParameters.Location = Hit.ImpactPoint;
+				CueParameters.Normal = Hit.ImpactNormal;
+				CueParameters.Instigator = GetOwner();
+				CueParameters.TargetAttachComponent = OverlappedComponent;
+
+				TargetASC->ExecuteGameplayCue(CurrentCueTag, CueParameters);
+
+				if (GetGameInstance()->Implements<UEffectManagerProvider>())
+				{
+					IEffectManagerProvider::Execute_PlayGameplayEffect(GetGameInstance(), CurrentDamageTag, Hit.ImpactPoint);
+				}
 			}
 		}
+
+		OnActorsWeaponHit(HitResults);
 	}
 }
 
-float ASword::CalculateDamage()
+void ASword::ClearIgnoreActors()
 {
-	if (FMath::FRandRange(0.f, 1.f) <= CriticalChance)
-	{
-		return Damage * CriticalDamageMultiplier;
-	}
-	else return Damage;
+	IgnoreActors.Empty();
 }
 
-void ASword::HitStop(float Duration, float TimeScale)
+void ASword::SetWeaponCollisionEnabled(const ECollisionEnabled::Type CollisionEnabled)
 {
-	if (UWorld* World = GetWorld())
-	{
-		World->GetWorldSettings()->SetTimeDilation(TimeScale);
-
-		FTimerHandle TimerHandle;
-		World->GetTimerManager().SetTimer(TimerHandle, this, &ASword::ResetTimeDilation, Duration, false);
-	}
-}
-
-void ASword::ResetTimeDilation()
-{
-	if (UWorld* World = GetWorld())
-	{
-		World->GetWorldSettings()->SetTimeDilation(1.0f);
-	}
+	Super::SetWeaponCollisionEnabled(CollisionEnabled);
+	
+	WeaponDamageBox->SetCollisionEnabled(CollisionEnabled);
 }

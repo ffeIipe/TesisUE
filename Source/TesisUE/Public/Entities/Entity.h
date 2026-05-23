@@ -3,251 +3,210 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 
-// Interfaces
-#include "Interfaces/HitInterface.h"
+#include "AbilitySystemInterface.h"
+#include "GameplayTagAssetInterface.h"
+#include "GenericTeamAgentInterface.h"
+#include "Features/SaveSystem/Interfaces/SaveInterface.h"
+#include "Interfaces/Damageable.h"
 
 #include "Entity.generated.h"
 
-/*
- * ----------Forward Declarations----------
- */
-class UCombatComponent;
-class UAttributeComponent;
-class UCharacterStateComponent;
-class UExtraMovementComponent;
+struct FGameplayAbilitySpecHandle;
+class IPickable;
 class UInventoryComponent;
-class UMementoComponent;
-class UPossessionComponent;
-class USpringArmComponent;
-
-class UInputMappingContext;
-class UInputAction;
+class UTargetingComponent;
+class UCameraComponent;
+class UMotionWarpingComponent;
+struct FHitReactDefinition;
 struct FInputActionValue;
+class UVelmaraAttributeSet;
+class UInputMappingContext;
+class UGameplayEffect;
+class USpringArmComponent;
+class UEntityData;
 
-class UNiagaraSystem;
-class ACameraActor;
-class USoundBase;
-class UCameraShakeBase;
-
-// --- Delegates ---
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEntityDead);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEntityDamaged);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEntityDead, AEntity*, EntityDead);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEntityDamaged, AEntity*, LastDamageCauser);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEntityCanBeFinished);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEntityShieldTakeDamage);
 
 UCLASS()
-class TESISUE_API AEntity : public ACharacter, public IHitInterface
+class TESISUE_API AEntity : public ACharacter, public ISaveInterface, public IGameplayTagAssetInterface,
+                            public IAbilitySystemInterface, public IDamageable
 {
 	GENERATED_BODY()
 
 public:
 	AEntity();
 
-	// --- Getters ---
-	UFUNCTION(BlueprintPure, Category = "Components | Combat")
-	FORCEINLINE UCombatComponent* GetCombatComponent() const { return CombatComponent; }
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Data")
+	TObjectPtr<UEntityData> EntityData;
 
-	UFUNCTION(BlueprintPure, Category = "Components | Attribute")
-	FORCEINLINE UAttributeComponent* GetAttributeComponent() const { return AttributeComponent; }
+	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
 
-	UFUNCTION(BlueprintPure, Category = "Components | Character State")
-	FORCEINLINE UCharacterStateComponent* GetCharacterStateComponent() const { return CharacterStateComponent; }
+	UFUNCTION(BlueprintCallable)
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+	
+	UFUNCTION(BlueprintCallable, Category = "SaveGame")
+	virtual void OnSaveGame_Implementation(FEntitySaveData& OutData) override;
 
-	UFUNCTION(BlueprintPure, Category = "Components | Extra Movement")
-	FORCEINLINE UExtraMovementComponent* GetExtraMovementComponent() const { return ExtraMovementComponent; }
+	UFUNCTION(BlueprintCallable, Category = "SaveGame")
+	virtual void OnLoadGame_Implementation(const FEntitySaveData& InData) override;
 
-	UFUNCTION(BlueprintPure, Category = "Components | Inventory")
+	virtual void ReceiveDamage_Implementation(FGameplayEventData DamagePayload) override;
+
+	virtual void MortalDamage_Implementation(FGameplayEventData DeathPayload) override;
+	
+	UFUNCTION(BlueprintPure, Category = "Components")
 	FORCEINLINE UInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 
-	UFUNCTION(BlueprintPure, Category = "Components | Memento")
-	FORCEINLINE UMementoComponent* GetMementoComponent() const { return MementoComponent; }
+	UFUNCTION(BlueprintPure, Category = "Components")
+	FORCEINLINE UTargetingComponent* GetTargetingComponent() const { return TargetingComponent; }
 
-	UFUNCTION(BlueprintPure, Category = "Components | Possession")
-	FORCEINLINE UPossessionComponent* GetPossessionComponent() const { return PossessionComponent; }
-
-	UFUNCTION(BlueprintPure, Category = "Components | Camera")
+	UFUNCTION(BlueprintPure, Category = "Components")
 	FORCEINLINE USpringArmComponent* GetSpringArmComponent() const { return SpringArmComponent; }
 
-	UFUNCTION(BlueprintCallable)
-	FORCEINLINE ACharacter* GetCharacter() { return this; }
+	UFUNCTION(BlueprintPure, Category = "Components")
+	FORCEINLINE UCameraComponent* GetCameraComponent() const { return CameraComponent; }
 
-	UFUNCTION(BlueprintCallable)
-	AActor* GetLastDamageCauser() { return LastDamageCauser; }
+	UFUNCTION(BlueprintPure, Category = "Components")
+	FORCEINLINE UMotionWarpingComponent* GetMotionWarpingComponent() const { return MotionWarpingComponent; }
 
 	UPROPERTY(BlueprintAssignable)
 	FOnEntityCanBeFinished OnCanBeFinished;
 
 	UPROPERTY(BlueprintAssignable)
 	FOnEntityShieldTakeDamage OnShieldTakeDamage;
+	
+	UFUNCTION(BlueprintPure)
+	TScriptInterface<IPickable> GetCurrentItem() const; 
 
-	// --- Interface Implementations ---
-	virtual void GetHit_Implementation(
-		AActor* DamageCauser,
-		const FVector& ImpactPoint, FDamageEvent const& DamageEvent,
-		const float DamageReceived) override;
+	UFUNCTION(BlueprintPure)
+	AActor* GetLastDamageCauser() const { return LastDamageCauser; }
 
-	virtual bool CanBeFinished_Implementation() override;
+	virtual ACharacter* GetCharacter() { return this; }
+	virtual UCharacterMovementComponent* GetCharacterMovementComponent() { return GetCharacterMovement(); }
+	
+	UFUNCTION(BlueprintCallable)
+	virtual FGameplayTag GetDirectionalReact(const FVector& ImpactPoint); 
 
-	// --- Gameplay Actions ---
 	UFUNCTION(BlueprintCallable, Category = "Combat | Weapon")
 	virtual void SetWeaponCollisionEnabled(ECollisionEnabled::Type CollisionEnabled);
 
-	void AttachFollowCamera(USpringArmComponent* AttachTarget);
+	UPROPERTY(BlueprintAssignable, BlueprintCallable)
+	FOnEntityDead OnDead;
 
-	virtual void StunBehavior();
-	virtual void RemoveStunBehavior();
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool IsAlive() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool IsShielded() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool HasEnergy() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool IsStunned() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool IsBlocking() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool IsLaunchable() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool CanBeFinished();
+
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool IsEquipped() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Entity Flag")
+	bool IsInAir();
 
 	UFUNCTION()
-	void OnWallCollision(const FHitResult& HitResult);
+	void OnBodyPartOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
-	UFUNCTION()
-	virtual void OutOfEnergy();
+	UFUNCTION(BlueprintCallable, Category = "Entity|Unarmed")
+	void ActivateBodyHitbox(FName ComponentTag, FGameplayTag DamageType);
 
-	UFUNCTION()
-	virtual void Die();
+	UFUNCTION(BlueprintCallable, Category = "Entity|Unarmed")
+	void DeactivateBodyHitbox(FName ComponentTag) const;
 
-	void PlayCameraShake(const FVector& Epicenter, float InnerRadius, float OuterRadius);
+	UFUNCTION(BlueprintCallable, Category = "Entity|Effects")
+	void HitFlash(float Duration, float Amount);
 
-	bool IsEquipping();
+	void DeactivateHitFlash();
 
+	UPROPERTY()
+	FTimerHandle HitFlashTimerHandle;
+	
+	UPROPERTY()
+	TArray<UMaterialInstanceDynamic*> DissolveMaterials;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Team")
+	FGenericTeamId TeamId; 
+
+	UFUNCTION(BlueprintCallable, Category = "Team")
+	bool IsHostile(const AEntity* OtherEntity) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Team")
+	void SetTeam(ETeamAttitude::Type NewTeam);
+
+	UFUNCTION(BlueprintCallable, Category = "Team")
+	FGenericTeamId GetTeamId() const {return TeamId;}
+	
 protected:
+	UFUNCTION(BlueprintCallable)
+	virtual void InitializeAttributeSet();
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Abilities")
+	TSubclassOf<UGameplayEffect> DefaultAttributeEffect;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Abilities")
+	TArray<FGameplayAbilitySpecHandle> GrantedAbilityHandles;
+	
 	virtual void BeginPlay() override;
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-	virtual void Landed(const FHitResult& Hit) override;
-	virtual void Jump() override;
+	
+	virtual void OnConstruction(const FTransform &Transform) override;
+	
+	void InitializeComponentsData() const;
 
-	// --- Input Handling ---
-	virtual void Interact(const FInputActionValue& Value);
-
-	// --- Damage & Equipping ---
-	virtual void Equipping(bool bIsSwordBeingEquipped) {};
-
-	virtual float TakeDamage(
-		float DamageAmount,
-		struct FDamageEvent const& DamageEvent,
-		class AController* EventInstigator,
-		AActor* DamageCauser) override;
-
-	// --- Montages ---
-	UPROPERTY(EditAnywhere, Category = "Animation | Montages | Death")
-	UAnimMontage* DeathMontage;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Inventory | Montages | Equip")
-	UAnimMontage* EquipSwordMontage;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Inventory | Montages | Equip")
-	UAnimMontage* EquipPistolMontage;
-
-	// --- Inherited Data ---
+	UFUNCTION(BlueprintCallable)
+	void GiveDefaultAbilities();
+	
+	UPROPERTY()
 	AActor* LastDamageCauser;
 
 	UPROPERTY(Transient)
-	class APlayerController* PlayerControllerRef = nullptr;
+	APlayerController* PlayerControllerRef = nullptr;
 
-	// --- Input Mapping Context ---
 	UPROPERTY(EditAnywhere, Category = "Input | Mapping")
-	UInputMappingContext* CharacterContext;
+	TObjectPtr<UInputMappingContext> CharacterContext;
 
-	// --- Camera ---
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera")
 	ACameraActor* FollowCamera;
-
-	// --- Input Actions ---
-	UPROPERTY(EditAnywhere, Category = "Input | Movement")
-	UInputAction* InputAction_Move;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Movement")
-	UInputAction* InputAction_Look;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Movement")
-	UInputAction* InputAction_Crouch;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Movement")
-	UInputAction* InputAction_Jump;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Movement")
-	UInputAction* InputAction_Dodge;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Actions")
-	UInputAction* InputAction_Interact;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Actions")
-	UInputAction* InputAction_SwitchForm;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Actions")
-	UInputAction* InputAction_Possess;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Actions")
-	UInputAction* InputAction_Inventory;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Actions")
-	UInputAction* InputAction_Attack;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Actions")
-	UInputAction* InputAction_HeavyAttack;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Actions")
-	UInputAction* InputAction_Launch;
-
-	UPROPERTY(EditAnywhere, Category = "Input | Actions")
-	UInputAction* InputAction_Block;
-
-private:
-	// --- SFX & VFX ---
-	UPROPERTY(EditDefaultsOnly, Category = "Effects | SFX")
-	USoundBase* ErrorSFX;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Effects | SFX")
-	USoundBase* ReceiveDamageSFX;
-
-	UPROPERTY(EditAnywhere, Category = "Effects | SFX")
-	USoundBase* HitSound;
-
-	UPROPERTY(EditAnywhere, Category = "Effects | SFX")
-	USoundBase* ShieldImpactSFX;
-
-	UPROPERTY(EditAnywhere, Category = "Effects | VFX")
-	UNiagaraSystem* NiagaraSystem;
-
-	UPROPERTY(EditAnywhere, Category = "Effects | CameraShake")
-	TSubclassOf<UCameraShakeBase> CameraShake;
-
-	// --- Stats & Properties ---
-	UPROPERTY(EditAnywhere, Category = "Gameplay | Interact")
-	float InteractTraceLenght;
-
-	UPROPERTY(EditAnywhere, Category = "Gameplay | Interact")
-	float InteractTargetRadius;
-
-	float DefaultMaxWalkSpeed = 700.f;
-
-	UPROPERTY(EditAnywhere, Category = "Stats | Stun")
-	float StunMaxWalkSpeed;
-
+	
+	UPROPERTY()
 	TArray<AActor*> IgnoreActors;
 
-	// --- Components ---
-	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetCombatComponent, Category = "Components | Combat")
-	UCombatComponent* CombatComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetAttributeComponent, Category = "Components | Attribute")
-	UAttributeComponent* AttributeComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetCharacterStateComponent, Category = "Components | Character State")
-	UCharacterStateComponent* CharacterStateComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetExtraMovementComponent, Category = "Components | Extra Movement")
-	UExtraMovementComponent* ExtraMovementComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetInventoryComponent, Category = "Components | Inventory")
+	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly)
+	UAbilitySystemComponent* AbilitySystemComponent;
+	
+	UPROPERTY(VisibleDefaultsOnly, BlueprintGetter = GetInventoryComponent)
 	UInventoryComponent* InventoryComponent;
 
-	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetMementoComponent, Category = "Components | Memento")
-	UMementoComponent* MementoComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetPossessionComponent, Category = "Components | Possession")
-	UPossessionComponent* PossessionComponent;
-
-	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetSpringArmComponent, Category = "Components | Camera")
+	UPROPERTY(VisibleDefaultsOnly,BlueprintGetter = GetTargetingComponent)
+	UTargetingComponent* TargetingComponent;
+	
+	UPROPERTY(VisibleDefaultsOnly,BlueprintGetter = GetSpringArmComponent)
 	USpringArmComponent* SpringArmComponent;
+
+	UPROPERTY(VisibleDefaultsOnly,BlueprintGetter = GetCameraComponent)
+	UCameraComponent* CameraComponent;
+
+	UPROPERTY(VisibleDefaultsOnly,BlueprintGetter = GetMotionWarpingComponent)
+	UMotionWarpingComponent* MotionWarpingComponent;
+
+	UPROPERTY(VisibleDefaultsOnly)
+	UVelmaraAttributeSet* AttributeSet;
 };

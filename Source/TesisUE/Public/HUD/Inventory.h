@@ -7,6 +7,7 @@
 #include "Inventory.generated.h"
 
 class AItem;
+class IPickable;
 
 UCLASS()
 class TESISUE_API UInventory : public UUserWidget
@@ -15,5 +16,5 @@ class TESISUE_API UInventory : public UUserWidget
 
 public:
 	UFUNCTION(BlueprintImplementableEvent)
-	void RefreshInventoryUI(const TArray<AItem*>& Items);
+	void RefreshInventoryUI(const TArray<TScriptInterface<IPickable>>& Items);
 };

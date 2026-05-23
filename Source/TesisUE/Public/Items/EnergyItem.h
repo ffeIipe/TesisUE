@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Items/Item.h"
+#include "Features/InventorySystem/Items/Item.h"
 #include "EnergyItem.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnChestUsedSpawnEnergy);
@@ -13,7 +13,7 @@ class TESISUE_API AEnergyItem : public AItem
 	GENERATED_BODY()
 	
 public:
-	void Use(class ACharacter* TargetCharacter) override;
+	virtual void OnEnteredInventory_Implementation(AActor* NewOwner) override;
 
 	UPROPERTY(BlueprintAssignable)
 	FOnChestUsedSpawnEnergy OnUsedSpawnEnergy;

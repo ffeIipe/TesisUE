@@ -57,6 +57,9 @@ public:
 	virtual void OnSaveGame_Implementation(FEntitySaveData& OutData) override; 
 	virtual void OnLoadGame_Implementation(const FEntitySaveData& InData) override;
 
+	UFUNCTION(BlueprintImplementableEvent)
+	void HandleTimerActivation(bool bActive);
+	
 private:
 	void UpdateLogicState();
 	void BroadcastToTargets(bool bActive);

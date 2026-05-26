@@ -70,6 +70,8 @@ void ALogicGate::ReceiveSignal_Implementation(const bool bActive, AActor* Activa
 	if (bIsByTimerDeactivation)
 	{
 		GetWorld()->GetTimerManager().SetTimer(DeactivationTimerHandle, this, &ALogicGate::ResetSources, DeactivationTime, false);
+		
+		HandleTimerActivation(bActive);
 	}
 	
 	if (bActive)
@@ -80,6 +82,8 @@ void ALogicGate::ReceiveSignal_Implementation(const bool bActive, AActor* Activa
 	{
 		ActiveSources.Remove(Activator);
 		GetWorld()->GetTimerManager().ClearTimer(DeactivationTimerHandle);
+		
+		HandleTimerActivation(bActive);
 	}
 
 	UpdateLogicState();
@@ -126,6 +130,7 @@ void ALogicGate::BroadcastToTargets(const bool bActive)
 		}
 	}
 
+	HandleTimerActivation(false);
 	GetWorld()->GetTimerManager().ClearTimer(DeactivationTimerHandle);
 	
 	if (bActive) DrawDebugString(GetWorld(), GetActorLocation(), "GATE OPEN", nullptr, FColor::Green, 2.0f);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "UObject/NoExportTypes.h"
 #include "ComboNode.generated.h"
 
@@ -17,7 +18,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CurrentNode | Data")
 	float DamageMultiplier = 1.f;
-	
+    
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Progression")
+	FGameplayTag RequiredUnlockTag;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Branches", meta = (DisplayThumbnail = "false"))
 	UComboNode* NextActionInputTap;
 

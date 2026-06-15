@@ -127,7 +127,12 @@ void ASword::AttachMeshToSocket(USceneComponent* InParent, const FName InSocketN
 {
 	Super::AttachMeshToSocket(InParent, InSocketName);
 
-	const FAttachmentTransformRules TransformRules(EAttachmentRule::SnapToTarget, true);
+	const FAttachmentTransformRules TransformRules(
+		EAttachmentRule::SnapToTarget,
+		EAttachmentRule::SnapToTarget,
+		EAttachmentRule::KeepWorld,
+		true
+		);
 
 	if (InSocketName == NAME_None)
 	{

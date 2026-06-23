@@ -158,12 +158,12 @@ void ASword::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* Othe
 		this,
 		Start,
 		End,
-		FVector(25.f, 25.f, 25.f),
+		FVector(12.f, 12.f, 12.f),
 		BoxTraceStart->GetComponentRotation(),
 		UEngineTypes::ConvertToTraceType(ECC_GameTraceChannel3),
 		false,
 		IgnoreActors,
-		EDrawDebugTrace::None,
+		EDrawDebugTrace::ForDuration,
 		HitResults,
 		true
 	);
@@ -204,10 +204,10 @@ void ASword::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* Othe
 
 				TargetASC->ExecuteGameplayCue(CurrentCueTag, CueParameters);
 
-				if (GetGameInstance()->Implements<UEffectManagerProvider>())
+				/*if (GetGameInstance()->Implements<UEffectManagerProvider>())
 				{
 					IEffectManagerProvider::Execute_PlayGameplayEffect(GetGameInstance(), CurrentDamageTag, Hit.ImpactPoint);
-				}
+				}*/
 			}
 		}
 

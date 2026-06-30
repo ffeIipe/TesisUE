@@ -50,6 +50,18 @@ struct FCharMoveStats
 {
     GENERATED_BODY()
 
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
+    FVector SprintSpeeds = FVector(700, 700, 700);
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
+    FVector RunSpeeds = FVector(500, 350, 300);
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
+    FVector WalkSpeeds = FVector(200, 180, 150);
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
+    FVector CrouchSpeeds = FVector(225, 200, 180);
+    
     UPROPERTY(EditAnywhere, BlueprintReadWrite)
     float GravityScale = 3.0f;
 

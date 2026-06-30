@@ -127,7 +127,12 @@ void ASword::AttachMeshToSocket(USceneComponent* InParent, const FName InSocketN
 {
 	Super::AttachMeshToSocket(InParent, InSocketName);
 
-	const FAttachmentTransformRules TransformRules(EAttachmentRule::SnapToTarget, true);
+	const FAttachmentTransformRules TransformRules(
+		EAttachmentRule::SnapToTarget,
+		EAttachmentRule::SnapToTarget,
+		EAttachmentRule::KeepWorld,
+		true
+		);
 
 	if (InSocketName == NAME_None)
 	{
@@ -153,7 +158,7 @@ void ASword::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* Othe
 		this,
 		Start,
 		End,
-		FVector(25.f, 25.f, 25.f),
+		FVector(20.f, 20.f, 20.f),
 		BoxTraceStart->GetComponentRotation(),
 		UEngineTypes::ConvertToTraceType(ECC_GameTraceChannel3),
 		false,
@@ -199,10 +204,10 @@ void ASword::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* Othe
 
 				TargetASC->ExecuteGameplayCue(CurrentCueTag, CueParameters);
 
-				if (GetGameInstance()->Implements<UEffectManagerProvider>())
+				/*if (GetGameInstance()->Implements<UEffectManagerProvider>())
 				{
 					IEffectManagerProvider::Execute_PlayGameplayEffect(GetGameInstance(), CurrentDamageTag, Hit.ImpactPoint);
-				}
+				}*/
 			}
 		}
 

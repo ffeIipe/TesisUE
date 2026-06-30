@@ -22,17 +22,6 @@ void UVelmaraAttributeSet::PostAttributeChange(const FGameplayAttribute& Attribu
 	{
 		NewValue = FMath::Clamp(NewValue, 0.0f, GetMaxHealth());
 	}
-
-	if (Attribute == GetMovementSpeedAttribute())
-	{
-		if (const ACharacter* TargetCharacter = Cast<ACharacter>(GetOwningActor()))
-		{
-			if (UCharacterMovementComponent* CharMovComp = TargetCharacter->GetCharacterMovement())
-			{
-				CharMovComp->MaxWalkSpeed = NewValue;
-			}
-		}
-	}
 }
 
 void UVelmaraAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
@@ -125,6 +114,10 @@ void UVelmaraAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCal
     	{
     		SetEnergy(FMath::Clamp(GetEnergy(), 0.0f, CurrentMax));
     	}
+    }
+    else if (Data.EvaluatedData.Attribute == GetMovementSpeedAttribute())
+    {
+	    
     }
 }
 

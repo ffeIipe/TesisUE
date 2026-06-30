@@ -28,7 +28,7 @@ ACustomPlayerController::ACustomPlayerController()
 }
 
 void ACustomPlayerController::PerformPossession(APawn* NewPawn)
-{
+    {
     if (!NewPawn || NewPawn == GetPawn()) return;
 
     if (!OriginalBody)

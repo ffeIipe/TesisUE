@@ -54,6 +54,11 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Settings")
     void SetFrameRateLimit(int32 NewFrameRateLimit);
 
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void SetGamma(float NewGamma);
+	
+    void ApplyGamma() const;
+
     UFUNCTION(BlueprintPure, Category = "Settings")
     FIntPoint GetScreenResolution() const;
 
@@ -133,6 +138,7 @@ public:
 private:
     const FString SettingsSlotName = TEXT("GameSettings");
 
+	UFUNCTION(BlueprintCallable, Category = "GameSettings")
     void SetDefaultGameSettings();
 
 	UPROPERTY(VisibleAnywhere, Category = "Metadata")

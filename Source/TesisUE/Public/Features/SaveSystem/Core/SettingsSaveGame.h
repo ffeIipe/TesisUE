@@ -41,4 +41,10 @@ public:
 
     UPROPERTY(VisibleAnywhere, Category = "Settings|Graphics")
     float FrameRateLimit = 120;
+
+    UPROPERTY(VisibleAnywhere, Category = "Settings|Graphics")
+    float GammaValue = 2.2f;
+
+    UPROPERTY(VisibleAnywhere, Category = "Settings|Graphics")
+    TEnumAsByte<EWindowMode::Type> WindowMode = EWindowMode::Fullscreen;
 };

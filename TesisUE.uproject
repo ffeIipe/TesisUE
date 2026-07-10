@@ -112,6 +112,10 @@
 			"Name": "MeshBlend",
 			"Enabled": true,
 			"MarketplaceURL": "com.epicgames.launcher://ue/Fab/product/1f4abe73-4cda-42db-995a-c9f8ca4790e5"
+		},
+		{
+			"Name": "AudioModulation",
+			"Enabled": true
 		}
 	]
 }

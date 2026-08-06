@@ -1,10 +1,11 @@
 #include "Components/TargetingComponent.h"
-
 #include "Curves/CurveFloat.h"
 #include "Entities/Entity.h"
 #include "GameFramework/Character.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "DrawDebugHelpers.h" // Necesario para los debugs visuales de C++
 
 UTargetingComponent::UTargetingComponent()
 {
@@ -20,20 +21,22 @@ void UTargetingComponent::BeginPlay()
     Super::BeginPlay();
     
     PrimaryComponentTick.bStartWithTickEnabled = false;
-    PrimaryComponentTick.TickInterval = 0.01f;
     SetComponentTickEnabled(false);
 
     OwnerCharacter = Cast<ACharacter>(GetOwner());
     if (OwnerCharacter)
     {
-        OwnerController = Cast<AController>(OwnerCharacter->GetController());
+        OwnerController = OwnerCharacter->GetController();
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("[UTargetingComponent] BeginPlay: Owner no es un ACharacter."));
     }
 }
 
 void UTargetingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
-    Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
+    // CRÍTICA RESUELTA: Había dos Super::TickComponent aquí.
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
     
     if (!CurrentTarget || !OwnerCharacter)
@@ -46,6 +49,7 @@ void UTargetingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
     
     if (DistSq > FMath::Square(TargetingLostRadius))
     {
+        UE_LOG(LogTemp, Warning, TEXT("[UTargetingComponent] Target perdido por distancia. Distancia actual: %f, Radio máximo: %f"), FMath::Sqrt(DistSq), TargetingLostRadius);
         DisableLock();
     }
     else
@@ -58,6 +62,7 @@ void UTargetingComponent::HandleTargetDeath(AEntity* DeadEntity)
 {
     if (DeadEntity == CurrentTarget)
     {
+        UE_LOG(LogTemp, Log, TEXT("[UTargetingComponent] El target actual (%s) ha muerto. Cambiando target."), *DeadEntity->GetName());
         DeadEntity->OnDead.RemoveDynamic(this, &UTargetingComponent::HandleTargetDeath);
 
         if (OnTargetedEntityDead.IsBound()) OnTargetedEntityDead.Broadcast(DeadEntity);
@@ -68,12 +73,14 @@ void UTargetingComponent::HandleTargetDeath(AEntity* DeadEntity)
 
 void UTargetingComponent::EnableLock(const float LockRange)
 {
+    UE_LOG(LogTemp, Log, TEXT("[UTargetingComponent] EnableLock llamado con rango: %f"), LockRange);
     ActiveLockRange = LockRange;
     CombatTargets = GetTargets(ActiveLockRange);
     CurrentTarget = SelectNearestTarget(CombatTargets);
 
     if (CurrentTarget)
     {
+        UE_LOG(LogTemp, Log, TEXT("[UTargetingComponent] Target fijado: %s"), *CurrentTarget->GetName());
         bIsLocking = true;
         SetComponentTickEnabled(true);
 
@@ -88,10 +95,15 @@ void UTargetingComponent::EnableLock(const float LockRange)
             );
         }
     }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[UTargetingComponent] EnableLock: No se encontró ningún target válido en el rango."));
+    }
 }
 
 void UTargetingComponent::DisableLock()
 {
+    UE_LOG(LogTemp, Log, TEXT("[UTargetingComponent] DisableLock llamado."));
     bIsLocking = false;
     SetComponentTickEnabled(false);
     
@@ -112,12 +124,14 @@ void UTargetingComponent::RefreshTargets()
 
     if (CombatTargets.Num() == 0)
     {
+        UE_LOG(LogTemp, Warning, TEXT("[UTargetingComponent] RefreshTargets: Ya no hay targets en combate. Desactivando Lock."));
         DisableLock();
         return;
     }
 
     if (CurrentTarget && !CombatTargets.Contains(CurrentTarget))
     {
+        UE_LOG(LogTemp, Log, TEXT("[UTargetingComponent] RefreshTargets: El target actual ya no es válido/está fuera de rango. Seleccionando uno nuevo."));
         CurrentTarget = SelectNearestTarget(CombatTargets);
     }
 }
@@ -149,6 +163,7 @@ void UTargetingComponent::ChangeHardLockTarget()
         }
 
         CurrentTarget = NewCandidate;
+        UE_LOG(LogTemp, Log, TEXT("[UTargetingComponent] ChangeHardLockTarget: Cambiado a %s"), *CurrentTarget->GetName());
 
         if (AEntity* NewTarget = Cast<AEntity>(CurrentTarget))
         {
@@ -180,7 +195,7 @@ AActor* UTargetingComponent::SelectNearestTarget(TArray<AActor*> Targets)
         }
     }
 
-    if (ClosestCombatTarget) 
+    if (ClosestCombatTarget && ClosestCombatTarget != CurrentTarget) 
     {
         if (AEntity* OldTarget = Cast<AEntity>(CurrentTarget))
         {
@@ -193,11 +208,9 @@ AActor* UTargetingComponent::SelectNearestTarget(TArray<AActor*> Targets)
         {
             NewTarget->OnDead.AddUniqueDynamic(this, &UTargetingComponent::HandleTargetDeath);
         }
-        
-        return ClosestCombatTarget;
     }
 
-    return nullptr;
+    return ClosestCombatTarget;
 }
 
 void UTargetingComponent::RotateTowardsTarget(AActor* Target)
@@ -208,23 +221,17 @@ void UTargetingComponent::RotateTowardsTarget(AActor* Target)
         {
             DisableLock();
         }
-        
         return;
     }
-
-    OwnerController = OwnerCharacter->GetController();
     
     const FVector StartLocation = OwnerCharacter->GetPawnViewLocation();
     const FVector TargetLocation = Target->GetActorLocation() + FVector(0.f, 0.f, 70.f);
     
     const FRotator TargetRotation = UKismetMathLibrary::FindLookAtRotation(StartLocation, TargetLocation);
-
-    if (OwnerController)
-    {
-        const FRotator CurrentControlRotation = OwnerController->GetControlRotation();
-        const FRotator NewControlRotation = FMath::RInterpTo(CurrentControlRotation, TargetRotation, GetWorld()->GetDeltaSeconds(), 15.f);
-        OwnerController->SetControlRotation(NewControlRotation);
-    }
+    const FRotator CurrentControlRotation = OwnerController->GetControlRotation();
+    const FRotator NewControlRotation = FMath::RInterpTo(CurrentControlRotation, TargetRotation, GetWorld()->GetDeltaSeconds(), 15.f);
+    
+    OwnerController->SetControlRotation(NewControlRotation);
 }
 
 TArray<AActor*> UTargetingComponent::GetTargets(const float Radius) const
@@ -236,21 +243,29 @@ TArray<AActor*> UTargetingComponent::GetTargets(const float Radius) const
     ActorsToIgnore.Add(GetOwner());
 
     TArray<AActor*> Hits;
+    
+    // DEBUG VISUAL: Dibuja la esfera para que confirmes que el tamaño de búsqueda es correcto
+    DrawDebugSphere(GetWorld(), GetOwner()->GetActorLocation(), Radius, 24, FColor::Red, false, 2.0f);
+
+    // CRÍTICA RESUELTA: TSubclassOf<AEntity>() instanciaba a NULL. Se cambió a AEntity::StaticClass()
     UKismetSystemLibrary::SphereOverlapActors(
         GetWorld(),
         GetOwner()->GetActorLocation(),
         Radius,
         ObjectTypes,
-        TSubclassOf<AEntity>(),
+        AEntity::StaticClass(), 
         ActorsToIgnore,
         Hits
     );
+
+    UE_LOG(LogTemp, Warning, TEXT("[UTargetingComponent] GetTargets: Esfera ejecutada. Actores interceptados (brutos): %d"), Hits.Num());
 
     TArray<AActor*> ValidTargets;
     
     const AEntity* OwnerEntity = Cast<AEntity>(GetOwner());
     if (!OwnerEntity) 
     {
+        UE_LOG(LogTemp, Error, TEXT("[UTargetingComponent] GetTargets: El Owner no es un AEntity válido."));
         return ValidTargets; 
     }
 
@@ -258,13 +273,26 @@ TArray<AActor*> UTargetingComponent::GetTargets(const float Radius) const
     {
         if (AEntity* TargetEntity = Cast<AEntity>(HitActor))
         {
-            if (const bool bIsHostile = OwnerEntity->IsHostile(TargetEntity); TargetEntity->IsAlive() && bIsHostile)
+            const bool bIsAlive = TargetEntity->IsAlive();
+            const bool bIsHostile = OwnerEntity->IsHostile(TargetEntity);
+
+            UE_LOG(LogTemp, Warning, TEXT("[UTargetingComponent] Evaluando a %s | ¿Está vivo?: %s | ¿Es hostil?: %s"), 
+                *HitActor->GetName(), 
+                bIsAlive ? TEXT("True") : TEXT("False"), 
+                bIsHostile ? TEXT("True") : TEXT("False"));
+
+            if (bIsAlive && bIsHostile)
             {
                 ValidTargets.Add(TargetEntity);
             }
         }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[UTargetingComponent] El actor detectado %s no casteó correctamente a AEntity."), *HitActor->GetName());
+        }
     }
     
+    UE_LOG(LogTemp, Warning, TEXT("[UTargetingComponent] GetTargets: Total de targets válidos retornados: %d"), ValidTargets.Num());
     return ValidTargets;
 }
 
@@ -276,8 +304,7 @@ void UTargetingComponent::RemoveCombatTarget()
     }
 }
 
-AActor* UTargetingComponent::SearchCombatTarget(
-    const FVector& Start, const FVector& End, const float SearchRadius) const
+AActor* UTargetingComponent::SearchCombatTarget(const FVector& Start, const FVector& End, const float SearchRadius) const
 {
     TArray<TEnumAsByte<EObjectTypeQuery>> ObjectTypes;
     ObjectTypes.Add(UEngineTypes::ConvertToObjectType(ECC_Pawn));
@@ -294,14 +321,17 @@ AActor* UTargetingComponent::SearchCombatTarget(
         ObjectTypes,
         false,
         ActorsToIgnore,
-        EDrawDebugTrace::ForDuration,
+        EDrawDebugTrace::ForDuration, // Si quieres ver este debug, tienes que asegurarte de ver los canales en pantalla
         ResultHit,
         true
     );
 
     if (bHit)
     {
+        UE_LOG(LogTemp, Log, TEXT("[UTargetingComponent] SearchCombatTarget: Impacto con %s"), *ResultHit.GetActor()->GetName());
         return ResultHit.GetActor();
     }
+
+    UE_LOG(LogTemp, Warning, TEXT("[UTargetingComponent] SearchCombatTarget: No se impactó nada."));
     return nullptr;
 }

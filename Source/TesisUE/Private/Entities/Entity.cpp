@@ -312,6 +312,11 @@ void AEntity::SetTeam(const ETeamAttitude::Type NewTeam)
 	else if (GEngine) GEngine->AddOnScreenDebugMessage(INDEX_NONE, 10.f, FColor::Red, "Failed to Get Controller.");
 }
 
+void AEntity::SetTeamId(const int NewTeamIndex)
+{
+	TeamId = NewTeamIndex;
+}
+
 void AEntity::InitializeAttributeSet()
 {
 	if (AbilitySystemComponent && DefaultAttributeEffect)

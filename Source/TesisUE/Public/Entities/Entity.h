@@ -154,6 +154,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Team")
 	FGenericTeamId GetTeamId() const {return TeamId;}
+
+	UFUNCTION(BlueprintCallable, Category = "Team")
+	void SetTeamId(int NewTeamIndex);
 	
 protected:
 	UFUNCTION(BlueprintCallable)
